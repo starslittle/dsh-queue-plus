@@ -1,0 +1,4 @@
+# DSH bundle patch: add Queue Plus to the selected profile.
+- insert:
+    - id: queue-plus
+      name: dsh-queue-plus
