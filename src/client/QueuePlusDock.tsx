@@ -1,8 +1,14 @@
-import type { QueuedMessage } from '@deepseek-ai/dsh-client-runtime/client'
+import type { QueuedMessage, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import {
+  IconCheckOutline16,
   IconChevronDownOutline14,
   IconChevronUpOutline14,
+  IconCloseOutline16,
+  IconEditOutline16,
   IconQueueOutline14,
+  IconSendOutline14,
+  IconTrashOutline16,
+  Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useId, useMemo, useState } from 'react'
@@ -10,7 +16,16 @@ import { clearQueue, moveQueue, QueuePlusClientError, undoClear } from './api'
 import { NS } from './locales'
 import { styles } from './styles'
 
-type QueuePlusDockProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<typeof NS>
+type QueueItemId = Parameters<SessionFace['updateQueue']>[0]
+type QueueAction = Parameters<SessionFace['updateQueue']>[1]
+
+export interface QueuePlusDockInjected {
+  updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
+}
+
+export type QueuePlusDockProps = PropsRuntime<'conversation.input.dock'>
+  & PropsLocale<typeof NS>
+  & QueuePlusDockInjected
 
 interface UndoState {
   readonly token: string
@@ -18,42 +33,108 @@ interface UndoState {
   readonly expiresAt: number
 }
 
+interface EditingState {
+  readonly id: QueueItemId
+  readonly text: string
+}
+
 interface Notice {
   readonly level: 'info' | 'error'
   readonly text: string
 }
 
+interface Announcement {
+  readonly key: number
+  readonly text: string
+}
+
+type BusyAction = 'queue' | 'move' | 'clear' | 'undo'
+
 function queued(rows: readonly QueuedMessage[]): QueuedMessage[] {
   return rows.filter(row => row.placement === 'queued')
 }
 
-function errorText(error: unknown, t: QueuePlusDockProps['t']): string {
-  if (error instanceof QueuePlusClientError) {
-    if (error.code === 'QUEUE_CHANGED' || error.code === 'ITEM_NOT_FOUND') return t('error.queueChanged')
-    if (error.code === 'UNDO_EXPIRED' || error.code === 'UNDO_NOT_FOUND') return t('error.expired')
-  }
-  return t('error.generic')
+function ids(rows: readonly QueuedMessage[]): string[] {
+  return rows.map(row => String(row.id))
 }
 
-/** Complementary dock: official QueueDock keeps edit/remove/steer ownership. */
-export function QueuePlusDock({ useSession, sessionId, t }: QueuePlusDockProps): React.JSX.Element | null {
+function sameOrder(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index])
+}
+
+function sameMembers(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && new Set(left).size === left.length
+    && left.every(id => right.includes(id))
+}
+
+function projectOrder(rows: readonly QueuedMessage[], order: readonly string[] | null): QueuedMessage[] {
+  if (order === null || !sameMembers(ids(rows), order)) return [...rows]
+  const byId = new Map(rows.map(row => [String(row.id), row] as const))
+  const projected = order.map(id => byId.get(id))
+  return projected.every((row): row is QueuedMessage => row !== undefined) ? projected : [...rows]
+}
+
+function errorText(error: unknown, t: QueuePlusDockProps['t'], fallback?: string): string {
+  if (error instanceof QueuePlusClientError) {
+    if (['QUEUE_CHANGED', 'ITEM_NOT_FOUND', 'EMPTY_QUEUE', 'INVALID_TARGET'].includes(error.code)) {
+      return t('error.queueChanged')
+    }
+    if (error.code === 'UNDO_EXPIRED' || error.code === 'UNDO_NOT_FOUND') return t('error.expired')
+    if (['UNDO_CONFLICT', 'UNDO_IN_PROGRESS', 'AGENT_CHANGED'].includes(error.code)) {
+      return t('error.undoConflict')
+    }
+  }
+  return fallback ?? t('error.generic')
+}
+
+/** One queue surface with an in-place management/sorting mode switch. */
+export function QueuePlusDock({
+  useSession,
+  sessionId,
+  updateQueue,
+  t,
+}: QueuePlusDockProps): React.JSX.Element | null {
   const inbox = useSession(snapshot => snapshot.queue)
   const queue = useMemo(() => queued(inbox), [inbox])
+  const running = useSession(snapshot => snapshot.running)
   const queueMutable = useSession(snapshot => snapshot.subagent === null)
-  const [expanded, setExpanded] = useState(false)
-  const [busy, setBusy] = useState<'move' | 'clear' | 'undo' | null>(null)
+  const [collapsed, setCollapsed] = useState(true)
+  const [sorting, setSorting] = useState(false)
+  const [editing, setEditing] = useState<EditingState | null>(null)
+  const [confirmingRemove, setConfirmingRemove] = useState<QueueItemId | null>(null)
+  const [busy, setBusy] = useState<BusyAction | null>(null)
   const [undo, setUndo] = useState<UndoState | null>(null)
   const [clock, setClock] = useState(Date.now())
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   const listId = useId()
 
+  const displayQueue = useMemo(() => projectOrder(queue, pendingOrder), [pendingOrder, queue])
+
   useEffect(() => {
-    if (queue.length < 2) setExpanded(false)
+    if (pendingOrder === null) return
+    const liveOrder = ids(queue)
+    if (sameOrder(liveOrder, pendingOrder) || !sameMembers(liveOrder, pendingOrder)) setPendingOrder(null)
+  }, [pendingOrder, queue])
+
+  useEffect(() => {
+    if (queue.length === 0) setCollapsed(true)
+    if (queue.length < 2 || !queueMutable) setSorting(false)
+    if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
+    if (confirmingRemove !== null
+      && (!queueMutable || !queue.some(row => row.id === confirmingRemove))) setConfirmingRemove(null)
     if (dragging !== null && !queue.some(row => String(row.id) === dragging)) setDragging(null)
     if (dragOver !== null && !queue.some(row => String(row.id) === dragOver)) setDragOver(null)
-  }, [dragOver, dragging, queue])
+  }, [confirmingRemove, dragOver, dragging, editing, queue, queueMutable])
+
+  useEffect(() => {
+    if (confirmingRemove === null) return undefined
+    const timer = window.setTimeout(() => setConfirmingRemove(null), 5_000)
+    return () => window.clearTimeout(timer)
+  }, [confirmingRemove])
 
   useEffect(() => {
     if (undo === null) return undefined
@@ -71,23 +152,42 @@ export function QueuePlusDock({ useSession, sessionId, t }: QueuePlusDockProps):
 
   useEffect(() => {
     if (notice === null) return undefined
-    const timer = window.setTimeout(() => setNotice(current => current === notice ? null : current), 3_500)
+    const timer = window.setTimeout(() => setNotice(current => current === notice ? null : current), 4_000)
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  if (!queueMutable || (queue.length < 2 && undo === null)) return null
+  if (queue.length === 0 && undo === null && notice === null) return null
 
-  const expectedOrder = (): string[] => queue.map(row => String(row.id))
+  const interactionActive = busy !== null || editing !== null || confirmingRemove !== null
+  const listVisible = displayQueue.length === 1 || !collapsed || sorting || editing !== null
   const seconds = undo === null ? 0 : Math.max(0, Math.ceil((undo.expiresAt - clock) / 1_000))
+  const expectedOrder = (): string[] => ids(displayQueue)
+
+  const announcePosition = (position: number): void => {
+    setAnnouncement(current => ({
+      key: (current?.key ?? 0) + 1,
+      text: t('status.position', { position }),
+    }))
+  }
 
   const move = async (itemId: string, toIndex: number): Promise<void> => {
-    if (busy !== null || toIndex < 0 || toIndex >= queue.length) return
+    if (busy !== null || toIndex < 0 || toIndex >= displayQueue.length) return
+    const order = expectedOrder()
+    if (order[toIndex] === itemId) return
     setBusy('move')
     setNotice(null)
     try {
-      await moveQueue({ action: 'move', sessionId: String(sessionId), itemId, toIndex, expectedOrder: expectedOrder() })
-      setNotice({ level: 'info', text: t('status.moved') })
+      const result = await moveQueue({
+        action: 'move',
+        sessionId: String(sessionId),
+        itemId,
+        toIndex,
+        expectedOrder: order,
+      })
+      setPendingOrder(result.order)
+      announcePosition(toIndex + 1)
     } catch (error: unknown) {
+      setPendingOrder(null)
       setNotice({ level: 'error', text: errorText(error, t) })
     } finally {
       setBusy(null)
@@ -96,14 +196,50 @@ export function QueuePlusDock({ useSession, sessionId, t }: QueuePlusDockProps):
     }
   }
 
+  const applyQueueAction = async (
+    itemId: QueueItemId,
+    action: QueueAction,
+    failure: string,
+  ): Promise<boolean> => {
+    if (busy !== null) return false
+    setBusy('queue')
+    setNotice(null)
+    try {
+      await updateQueue(itemId, action)
+      return true
+    } catch (error: unknown) {
+      setNotice({ level: 'error', text: errorText(error, t, failure) })
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const saveEdit = async (): Promise<void> => {
+    if (editing === null || editing.text.trim() === '') return
+    if (await applyQueueAction(
+      editing.id,
+      { kind: 'edit', content: [{ type: 'text', text: editing.text }] },
+      t('error.edit'),
+    )) setEditing(null)
+  }
+
+  const removeMessage = async (itemId: QueueItemId): Promise<void> => {
+    if (await applyQueueAction(itemId, { kind: 'remove' }, t('error.remove'))) setConfirmingRemove(null)
+  }
+
   const clearAll = async (): Promise<void> => {
-    if (busy !== null || queue.length === 0) return
+    if (busy !== null || displayQueue.length === 0) return
     setBusy('clear')
     setNotice(null)
     try {
       const result = await clearQueue(String(sessionId), expectedOrder())
       setUndo({ token: result.token, count: result.count, expiresAt: result.expiresAt })
-      setExpanded(false)
+      setPendingOrder(null)
+      setEditing(null)
+      setConfirmingRemove(null)
+      setSorting(false)
+      setCollapsed(true)
     } catch (error: unknown) {
       setNotice({ level: 'error', text: errorText(error, t) })
     } finally {
@@ -119,6 +255,7 @@ export function QueuePlusDock({ useSession, sessionId, t }: QueuePlusDockProps):
     try {
       const result = await undoClear(String(sessionId), current.token)
       setUndo(null)
+      setCollapsed(false)
       setNotice({ level: 'info', text: t('status.restored', { count: result.restored }) })
     } catch (error: unknown) {
       if (error instanceof QueuePlusClientError
@@ -129,108 +266,322 @@ export function QueuePlusDock({ useSession, sessionId, t }: QueuePlusDockProps):
     }
   }
 
+  const toggleSorting = (): void => {
+    if (sorting) {
+      setSorting(false)
+      return
+    }
+    setCollapsed(false)
+    setNotice(null)
+    setSorting(true)
+  }
+
   return (
-    <div className={styles.dock} data-queue-plus-dock="">
-      <section className={styles.panel} aria-label={t('panel.label')}>
-        {queue.length >= 2 && (
-          <>
+    <div
+      className={styles.dock}
+      data-queue-plus-dock=""
+      data-queue-plus-mode={sorting ? 'sort' : 'manage'}
+    >
+      <section className={styles.panel} data-sorting={sorting || undefined} aria-label={t('panel.label')}>
+        {displayQueue.length > 1 && (
+          <header className={styles.header}>
             <button
               type="button"
-              className={styles.header}
-              aria-expanded={expanded}
+              className={styles.summaryButton}
+              aria-expanded={listVisible}
               aria-controls={listId}
-              aria-label={expanded ? t('action.collapse') : t('action.expand')}
-              disabled={busy !== null}
-              onClick={() => setExpanded(value => !value)}
+              disabled={interactionActive || sorting}
+              onClick={() => setCollapsed(value => !value)}
             >
-              <span className={styles.heading}>
-                <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
-                <span className={styles.title}>{t('panel.title')}</span>
-                <span className={styles.count}>{t('panel.count', { count: queue.length })}</span>
-              </span>
-              <span className={styles.hint}>{t('panel.hint')}</span>
-              <span className={styles.chevron} aria-hidden="true">
-                {expanded ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
-              </span>
+              <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
+              <span className={styles.count}>{t('panel.count', { count: displayQueue.length })}</span>
+              {sorting && <span className={styles.sortingLabel}>{t('panel.sorting')}</span>}
             </button>
-            {expanded && (
-              <div className={styles.body}>
-                <ol id={listId} className={styles.list}>
-                  {queue.map((row, index) => {
-                    const itemId = String(row.id)
-                    return (
-                      <li
-                        key={itemId}
-                        className={styles.row}
-                        draggable={busy === null}
-                        data-dragging={dragging === itemId || undefined}
-                        data-dragover={dragOver === itemId || undefined}
-                        onDragStart={(event) => {
-                          setDragging(itemId)
-                          event.dataTransfer.effectAllowed = 'move'
-                          event.dataTransfer.setData('text/plain', itemId)
-                        }}
-                        onDragEnter={() => setDragOver(itemId)}
-                        onDragOver={(event) => {
-                          event.preventDefault()
-                          event.dataTransfer.dropEffect = 'move'
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault()
-                          const source = dragging ?? event.dataTransfer.getData('text/plain')
-                          if (source !== '' && source !== itemId) void move(source, index)
-                        }}
-                        onDragEnd={() => {
-                          setDragging(null)
-                          setDragOver(null)
-                        }}
-                      >
-                        <span className={styles.index}>{String(index + 1).padStart(2, '0')}</span>
-                        <span className={styles.grip} aria-hidden="true">⠿</span>
-                        <span className={styles.preview} title={row.preview}>{row.preview}</span>
-                        <span className={styles.actions}>
-                          <button
-                            type="button"
-                            className={styles.iconButton}
-                            aria-label={t('action.moveUp', { preview: row.preview })}
-                            title={t('action.moveUp', { preview: row.preview })}
-                            disabled={busy !== null || index === 0}
-                            onClick={() => { void move(itemId, index - 1) }}
-                          >
-                            <IconChevronUpOutline14 />
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.iconButton}
-                            aria-label={t('action.moveDown', { preview: row.preview })}
-                            title={t('action.moveDown', { preview: row.preview })}
-                            disabled={busy !== null || index === queue.length - 1}
-                            onClick={() => { void move(itemId, index + 1) }}
-                          >
-                            <IconChevronDownOutline14 />
-                          </button>
-                        </span>
-                      </li>
-                    )
-                  })}
-                </ol>
-                <footer className={styles.footer}>
-                  <span className={styles.footnote}>{t('hint.undo')}</span>
-                  <button
-                    type="button"
-                    className={styles.clearButton}
-                    disabled={busy !== null}
-                    onClick={() => { void clearAll() }}
-                  >
-                    {t('action.clear')}
-                  </button>
-                </footer>
-              </div>
+            {queueMutable && (
+              <button
+                type="button"
+                className={styles.modeButton}
+                data-active={sorting || undefined}
+                aria-pressed={sorting}
+                disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                onClick={toggleSorting}
+              >
+                {sorting ? t('action.finishSort') : t('action.sort')}
+              </button>
             )}
-          </>
+            {!sorting && (
+              <button
+                type="button"
+                className={styles.collapseButton}
+                aria-label={listVisible ? t('action.collapse') : t('action.expand')}
+                aria-expanded={listVisible}
+                aria-controls={listId}
+              disabled={interactionActive}
+              onClick={() => setCollapsed(value => !value)}
+            >
+                <span aria-hidden="true">
+                  {listVisible ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
+                </span>
+            </button>
+            )}
+          </header>
         )}
+
+        {displayQueue.length > 0 && (
+          <div
+            id={listId}
+            className={styles.body}
+            data-sorting={sorting || undefined}
+            data-drag-active={dragging !== null || undefined}
+            hidden={!listVisible}
+          >
+            {listVisible && (
+              <ol className={styles.list} aria-label={sorting ? t('panel.sortList') : t('panel.list')}>
+                {displayQueue.map((row, index) => {
+                  const itemId = String(row.id)
+                  const rowEditing = editing?.id === row.id
+                  const rowConfirmingRemove = confirmingRemove === row.id
+                  const otherEditActive = editing !== null && !rowEditing
+                  return (
+                    <li
+                      key={itemId}
+                      className={styles.row}
+                      data-mode={sorting ? 'sort' : 'manage'}
+                      data-dragging={dragging === itemId || undefined}
+                      data-dragover={dragOver === itemId || undefined}
+                      onDragEnter={() => {
+                        if (sorting && dragging !== null) setDragOver(itemId)
+                      }}
+                      onDragOver={(event) => {
+                        if (!sorting || dragging === null) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'move'
+                      }}
+                      onDrop={(event) => {
+                        if (!sorting) return
+                        event.preventDefault()
+                        const source = dragging ?? event.dataTransfer.getData('text/plain')
+                        if (source !== '' && source !== itemId) void move(source, index)
+                      }}
+                    >
+                      {sorting
+                        ? (
+                            <>
+                              <span className={styles.index}>{String(index + 1).padStart(2, '0')}</span>
+                              <span
+                                className={styles.dragHandle}
+                                draggable={busy === null}
+                                aria-hidden="true"
+                                title={t('action.drag', { position: index + 1 })}
+                                onDragStart={(event) => {
+                                  setDragging(itemId)
+                                  event.dataTransfer.effectAllowed = 'move'
+                                  event.dataTransfer.setData('text/plain', itemId)
+                                }}
+                                onDragEnd={() => {
+                                  setDragging(null)
+                                  setDragOver(null)
+                                }}
+                              >
+                                <span className={styles.gripDots} />
+                              </span>
+                              <span className={styles.preview} title={row.preview}>{row.preview}</span>
+                              <span className={styles.actions}>
+                                <Tooltip label={t('action.moveUp', { position: index + 1 })} side="bottom" delayMs={500}>
+                                  <button
+                                    type="button"
+                                    className={styles.iconButton}
+                                    aria-label={t('action.moveUp', { position: index + 1 })}
+                                    disabled={busy !== null || index === 0}
+                                    onClick={() => { void move(itemId, index - 1) }}
+                                  >
+                                    <span aria-hidden="true"><IconChevronUpOutline14 /></span>
+                                  </button>
+                                </Tooltip>
+                                <Tooltip label={t('action.moveDown', { position: index + 1 })} side="bottom" delayMs={500}>
+                                  <button
+                                    type="button"
+                                    className={styles.iconButton}
+                                    aria-label={t('action.moveDown', { position: index + 1 })}
+                                    disabled={busy !== null || index === displayQueue.length - 1}
+                                    onClick={() => { void move(itemId, index + 1) }}
+                                  >
+                                    <span aria-hidden="true"><IconChevronDownOutline14 /></span>
+                                  </button>
+                                </Tooltip>
+                              </span>
+                            </>
+                          )
+                        : (
+                            <>
+                              {displayQueue.length === 1 && (
+                                <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
+                              )}
+                              {rowEditing
+                                ? (
+                                    <input
+                                      autoFocus
+                                      className={styles.editor}
+                                      aria-label={t('action.edit')}
+                                      autoComplete="off"
+                                      name="queued-message"
+                                      value={editing.text}
+                                      onChange={(event) => setEditing({ id: editing.id, text: event.currentTarget.value })}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Escape') {
+                                          setEditing(null)
+                                          return
+                                        }
+                                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                                          event.preventDefault()
+                                          void saveEdit()
+                                        }
+                                      }}
+                                    />
+                                  )
+                                : <span className={styles.preview} title={row.preview}>{row.preview}</span>}
+
+                              {queueMutable && (
+                                <span className={styles.actions}>
+                                  {rowEditing
+                                    ? (
+                                        <>
+                                          <Tooltip label={t('action.save')} side="bottom" delayMs={500}>
+                                            <button
+                                              type="button"
+                                              className={styles.iconButton}
+                                              aria-label={t('action.save')}
+                                              disabled={busy !== null || editing.text.trim() === ''}
+                                              onClick={() => { void saveEdit() }}
+                                            >
+                                              <span aria-hidden="true"><IconCheckOutline16 size={14} /></span>
+                                            </button>
+                                          </Tooltip>
+                                          <Tooltip label={t('action.cancelEdit')} side="bottom" delayMs={500}>
+                                            <button
+                                              type="button"
+                                              className={styles.iconButton}
+                                              aria-label={t('action.cancelEdit')}
+                                              disabled={busy !== null}
+                                              onClick={() => setEditing(null)}
+                                            >
+                                              <span aria-hidden="true"><IconCloseOutline16 size={14} /></span>
+                                            </button>
+                                          </Tooltip>
+                                        </>
+                                      )
+                                    : rowConfirmingRemove
+                                      ? (
+                                          <>
+                                            <button
+                                              type="button"
+                                              className={styles.inlineButton}
+                                              disabled={busy !== null}
+                                              onClick={() => setConfirmingRemove(null)}
+                                            >
+                                              {t('action.cancelRemove')}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className={styles.dangerButton}
+                                              disabled={busy !== null}
+                                              onClick={() => { void removeMessage(row.id) }}
+                                            >
+                                              {t('action.confirmRemove')}
+                                            </button>
+                                          </>
+                                        )
+                                    : (
+                                        <>
+                                          <Tooltip
+                                            label={t('action.edit')}
+                                            side="bottom"
+                                            delayMs={500}
+                                            disabled={row.text === null}
+                                          >
+                                            <button
+                                              type="button"
+                                              className={styles.iconButton}
+                                              aria-label={t('action.edit')}
+                                              title={row.text === null ? t('action.editUnsupported') : undefined}
+                                              disabled={busy !== null || otherEditActive
+                                                || confirmingRemove !== null || row.text === null}
+                                              onClick={() => {
+                                                if (row.text !== null) setEditing({ id: row.id, text: row.text })
+                                              }}
+                                            >
+                                              <span aria-hidden="true"><IconEditOutline16 size={14} /></span>
+                                            </button>
+                                          </Tooltip>
+                                          <Tooltip label={t('action.remove')} side="bottom" delayMs={500}>
+                                            <button
+                                              type="button"
+                                              className={styles.iconButton}
+                                              aria-label={t('action.remove')}
+                                              disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                                              onClick={() => {
+                                                setNotice(null)
+                                                setConfirmingRemove(row.id)
+                                              }}
+                                            >
+                                              <span aria-hidden="true"><IconTrashOutline16 size={14} /></span>
+                                            </button>
+                                          </Tooltip>
+                                          <Tooltip
+                                            label={t('action.steer')}
+                                            side="bottom"
+                                            delayMs={500}
+                                            disabled={!running}
+                                          >
+                                            <button
+                                              type="button"
+                                              className={styles.iconButton}
+                                              aria-label={t('action.steer')}
+                                              title={running ? undefined : t('action.steerUnavailable')}
+                                              disabled={busy !== null || editing !== null
+                                                || confirmingRemove !== null || !running}
+                                              onClick={() => {
+                                                void applyQueueAction(row.id, { kind: 'steer' }, t('error.steer'))
+                                              }}
+                                            >
+                                              <span aria-hidden="true"><IconSendOutline14 /></span>
+                                            </button>
+                                          </Tooltip>
+                                        </>
+                                      )}
+                                </span>
+                              )}
+                            </>
+                          )}
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+
+            {listVisible && queueMutable && displayQueue.length > 1 && (
+              <footer className={styles.footer}>
+                <span className={styles.footnote}>{sorting ? t('hint.sort') : t('hint.undo')}</span>
+                <button
+                  type="button"
+                  className={styles.clearButton}
+                  disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                  onClick={() => { void clearAll() }}
+                >
+                  {t('action.clear')}
+                </button>
+              </footer>
+            )}
+          </div>
+        )}
+
         {undo !== null && (
-          <div className={styles.undo} role="status">
+          <div
+            className={styles.undo}
+            data-attached={displayQueue.length > 0 || undefined}
+            role="status"
+            aria-live="polite"
+          >
             <span className={styles.undoText}>{t('status.cleared', { count: undo.count })}</span>
             <button
               type="button"
@@ -242,14 +593,22 @@ export function QueuePlusDock({ useSession, sessionId, t }: QueuePlusDockProps):
             </button>
           </div>
         )}
+
         {notice !== null && (
           <div
             className={styles.notice}
             data-level={notice.level}
             role={notice.level === 'error' ? 'alert' : 'status'}
+            aria-live={notice.level === 'error' ? 'assertive' : 'polite'}
           >
             {notice.text}
           </div>
+        )}
+
+        {announcement !== null && (
+          <span key={announcement.key} className={styles.srOnly} role="status" aria-live="polite">
+            {announcement.text}
+          </span>
         )}
       </section>
     </div>

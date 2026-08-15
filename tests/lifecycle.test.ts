@@ -1,10 +1,17 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  IconCheckOutline16: () => null,
   IconChevronDownOutline14: () => null,
   IconChevronUpOutline14: () => null,
+  IconCloseOutline16: () => null,
+  IconEditOutline16: () => null,
   IconQueueOutline14: () => null,
+  IconSendOutline14: () => null,
+  IconTrashOutline16: () => null,
+  Tooltip: ({ children }: { children: ReactNode }) => children,
 }))
 
 import { apply } from '../src/client/index'
@@ -27,8 +34,8 @@ function harness(): { ctx: ClientContext; registrations: string[]; dispose(): vo
         disposers.push(dispose)
         return dispose
       },
-      register(options: { name: string; id: string }) {
-        registrations.push(`${options.name}:${options.id}`)
+      register(options: { name: string; id: string; priority?: number }) {
+        registrations.push(`${options.name}:${options.id}:${String(options.priority ?? 0)}`)
         return () => undefined
       },
     },
@@ -44,7 +51,7 @@ describe('client plugin lifecycle', () => {
   it('registers one dock and removes its style on unload', () => {
     const first = harness()
     apply(first.ctx)
-    expect(first.registrations).toEqual(['conversation.input.dock:queue-plus'])
+    expect(first.registrations).toEqual(['conversation.input.dock:queue:-10'])
     expect(document.getElementById(STYLE_ID)).not.toBeNull()
     first.dispose()
     expect(document.getElementById(STYLE_ID)).toBeNull()

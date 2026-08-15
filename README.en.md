@@ -2,20 +2,24 @@
 
 English | [简体中文](./README.md)
 
-Three focused controls for the DeepSeek Harness prompt queue: **reorder, clear all, and 10-second undo**.
+A single, comfortable DeepSeek Harness queue surface for **editing, removing, steering, reordering, clear-all, and 10-second undo**.
 
-Queue Plus complements the official QueueDock instead of replacing it. The official dock keeps ownership of edit, remove, and steer; Queue Plus appears when at least two prompts are queued and handles ordering and bulk cleanup.
+Queue Plus takes over the QueueDock through DSH's public slot-priority mechanism. It does not hide DOM or render the same messages twice, and the stock QueueDock returns automatically when the plugin unloads.
 
 ## Features
 
-- Reorder pending prompts with drag and drop.
-- Move-up and move-down buttons for keyboard and touch use.
+- Keep edit, remove, and steer controls in the default view; individual removal uses a compact inline confirmation.
+- Switch the same list in place with “Sort” instead of opening a second panel or scrollbar.
+- Reorder with a dedicated drag handle, plus move-up and move-down buttons for keyboard and touch use.
 - Clear the complete next-turn queue in one action.
 - Undo clear-all for 10 seconds; restored prompts stay ahead of work added during the undo window.
+- Show the server-confirmed order immediately, then reconcile it with DSH's authoritative queue snapshot.
 - Compare-and-swap protection rejects stale browser actions instead of mutating a queue that has already changed.
-- DSH-native spacing, colors, icons, Chinese and English UI copy.
+- DSH-native spacing, colors, icons, Chinese and English UI copy, visible focus, screen-reader announcements, and 44px coarse-pointer targets.
 
 ## Install
+
+> This workspace is the unreleased v0.2.0. The v0.1.0 Release below still contains the previous separate sorting panel; use the local `link:` development install below to test the unified queue.
 
 The recommended path is the prebuilt Release archive, which needs no install-script permission:
 
@@ -23,7 +27,7 @@ The recommended path is the prebuilt Release archive, which needs no install-scr
 dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.1.0/dsh-queue-plus-0.1.0.tgz
 ```
 
-Restart `dsh web`. Queue at least two prompts while an agent is running; “Adjust run order” appears below the official queue.
+Restart `dsh web`. Queue at least two prompts while an agent is running; “Sort” appears in the queue header and reorders the existing list in place.
 
 You can also pin a version and install from GitHub source:
 
@@ -57,6 +61,7 @@ dsh plugin --profile web remove dsh-queue-plus
 ## Safety and scope
 
 - A reorder is one contiguous replacement splice, so Host observers see only the final order.
+- The browser renders one queue surface; sorting reuses the authoritative rows instead of copying business state.
 - Undo records live only in the current Host process for 10 seconds, with at most 64 records retained.
 - Undo is rejected after Host restart, Agent replacement, timeout, or an identity conflict.
 - The plugin does not touch steering/context queues or queues owned by a parent Agent.

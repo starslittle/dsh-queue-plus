@@ -1,8 +1,8 @@
 {
   "name": "dsh-queue-plus",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
-  "description": "Safe reorder, clear-all, and timed undo controls for the DeepSeek Harness prompt queue.",
+  "description": "A unified, accessible prompt queue for DeepSeek Harness with editing, steering, reordering, clear-all, and timed undo.",
   "author": "starslittle",
   "homepage": "https://github.com/starslittle/dsh-queue-plus#readme",
   "repository": {
