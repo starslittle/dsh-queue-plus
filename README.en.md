@@ -19,12 +19,10 @@ Queue Plus takes over the QueueDock through DSH's public slot-priority mechanism
 
 ## Install
 
-> This workspace is the unreleased v0.2.0. The v0.1.0 Release below still contains the previous separate sorting panel; use the local `link:` development install below to test the unified queue.
-
 The recommended path is the prebuilt Release archive, which needs no install-script permission:
 
 ```bash
-dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.1.0/dsh-queue-plus-0.1.0.tgz
+dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.2.0/dsh-queue-plus-0.2.0.tgz
 ```
 
 Restart `dsh web`. Queue at least two prompts while an agent is running; “Sort” appears in the queue header and reorders the existing list in place.
@@ -32,7 +30,7 @@ Restart `dsh web`. Queue at least two prompts while an agent is running; “Sort
 You can also pin a version and install from GitHub source:
 
 ```bash
-dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.1.0
+dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.2.0
 ```
 
 Source installation runs the repository's self-contained `prepare` build. pnpm 10 and later require the user to explicitly allow `dsh-queue-plus` builds in that profile's `pnpm-workspace.yaml`; only grant that permission to source you trust.

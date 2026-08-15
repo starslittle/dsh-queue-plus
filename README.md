@@ -19,12 +19,10 @@ Queue Plus 使用 DSH 官方插槽的优先级覆盖机制接管 QueueDock，不
 
 ## 安装
 
-> 当前工作区是尚未发布的 v0.2.0。下面的 v0.1.0 Release 仍是旧版独立排序面板；测试新界面请使用后文的本地 `link:` 开发安装。
-
 推荐安装 Release 中的预构建包，无需授权安装脚本：
 
 ```bash
-dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.1.0/dsh-queue-plus-0.1.0.tgz
+dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.2.0/dsh-queue-plus-0.2.0.tgz
 ```
 
 重启 `dsh web`。运行中连续发送至少两条“排队”消息，队列标题旁会出现“排序”；点击后在原列表内调整执行顺序。
@@ -32,7 +30,7 @@ dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/re
 也可以锁定版本，从 GitHub 源码安装：
 
 ```bash
-dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.1.0
+dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.2.0
 ```
 
 源码安装会运行仓库自带的 `prepare` 构建。pnpm 10 及以上版本会要求用户先在对应 profile 的 `pnpm-workspace.yaml` 中显式允许 `dsh-queue-plus` 执行构建；只应对可信源码开启此权限。
