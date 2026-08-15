@@ -6,9 +6,7 @@ A better stock queue: edit, remove, and steer, plus reorder, clear-all, and 10-s
 
 Turning it off or uninstalling restores the built-in queue immediately.
 
-<!-- After you add docs/demo.gif, put this under the intro:
 ![Reorder, clear, and 10-second undo](docs/demo.gif)
--->
 
 ## Install
 
