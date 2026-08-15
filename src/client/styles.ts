@@ -23,9 +23,6 @@ export const styles = {
   footer: 'dsh-queue-plus-footer',
   footnote: 'dsh-queue-plus-footnote',
   clearButton: 'dsh-queue-plus-clear-button',
-  undo: 'dsh-queue-plus-undo',
-  undoText: 'dsh-queue-plus-undo-text',
-  undoButton: 'dsh-queue-plus-undo-button',
   notice: 'dsh-queue-plus-notice',
   srOnly: 'dsh-queue-plus-sr-only',
 } as const
@@ -142,8 +139,7 @@ export const STYLE_TEXT = String.raw`
 .dsh-queue-plus-icon-button,
 .dsh-queue-plus-inline-button,
 .dsh-queue-plus-danger-button,
-.dsh-queue-plus-clear-button,
-.dsh-queue-plus-undo-button {
+.dsh-queue-plus-clear-button {
   font-family: Inter, var(--dsw-font-family);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -189,8 +185,7 @@ export const STYLE_TEXT = String.raw`
 .dsh-queue-plus-icon-button:disabled,
 .dsh-queue-plus-inline-button:disabled,
 .dsh-queue-plus-danger-button:disabled,
-.dsh-queue-plus-clear-button:disabled,
-.dsh-queue-plus-undo-button:disabled {
+.dsh-queue-plus-clear-button:disabled {
   cursor: default;
   opacity: .42;
 }
@@ -376,44 +371,6 @@ export const STYLE_TEXT = String.raw`
   border-radius: 8px;
 }
 
-.dsh-queue-plus-undo {
-  display: flex;
-  align-items: center;
-  min-height: 42px;
-  gap: 10px;
-  padding: 4px 8px 4px 12px;
-}
-
-.dsh-queue-plus-undo[data-attached='true'] {
-  border-top: 1px solid var(--dsw-alias-border-l1);
-}
-
-.dsh-queue-plus-undo-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dsh-queue-plus-undo-button {
-  flex: none;
-  min-height: 30px;
-  padding: 3px 10px;
-  color: var(--dsw-alias-state-business-primary);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 20px;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid var(--dsw-alias-state-business-primary);
-  border-radius: 8px;
-  font-variant-numeric: tabular-nums;
-}
-
 .dsh-queue-plus-notice {
   padding: 5px 12px 7px;
   color: var(--dsw-alias-label-secondary);
@@ -444,8 +401,7 @@ export const STYLE_TEXT = String.raw`
 .dsh-queue-plus-icon-button:focus-visible,
 .dsh-queue-plus-inline-button:focus-visible,
 .dsh-queue-plus-danger-button:focus-visible,
-.dsh-queue-plus-clear-button:focus-visible,
-.dsh-queue-plus-undo-button:focus-visible {
+.dsh-queue-plus-clear-button:focus-visible {
   outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: -2px;
 }
@@ -458,7 +414,6 @@ export const STYLE_TEXT = String.raw`
   .dsh-queue-plus-inline-button:hover:not(:disabled),
   .dsh-queue-plus-danger-button:hover:not(:disabled),
   .dsh-queue-plus-clear-button:hover:not(:disabled),
-  .dsh-queue-plus-undo-button:hover:not(:disabled),
   .dsh-queue-plus-drag-handle:hover {
     background: var(--dsw-alias-interactive-bg-hover);
   }
@@ -466,8 +421,7 @@ export const STYLE_TEXT = String.raw`
 
 @media (pointer: coarse) {
   .dsh-queue-plus-header,
-  .dsh-queue-plus-row,
-  .dsh-queue-plus-undo {
+  .dsh-queue-plus-row {
     min-height: 48px;
   }
 
@@ -477,8 +431,7 @@ export const STYLE_TEXT = String.raw`
   .dsh-queue-plus-inline-button,
   .dsh-queue-plus-danger-button,
   .dsh-queue-plus-drag-handle,
-  .dsh-queue-plus-clear-button,
-  .dsh-queue-plus-undo-button {
+  .dsh-queue-plus-clear-button {
     min-width: 44px;
     min-height: 44px;
   }

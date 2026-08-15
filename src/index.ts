@@ -1,4 +1,4 @@
-/** Queue Plus host half: guarded live-queue mutations and short-lived undo. */
+/** Queue Plus host half: guarded live-queue reordering. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { QUEUE_PLUS_PATH, type QueuePlusErrorBody } from './shared'
@@ -121,7 +121,7 @@ async function handleRoute(
   }
 }
 
-/** Register the reversible same-origin route contribution. */
+/** Register the same-origin reorder route contribution. */
 export function apply(ctx: Context): void {
   const service = new QueuePlusService({
     resolveAgent: sessionId => ctx.agents.get(sessionId as SessionId),

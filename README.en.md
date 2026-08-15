@@ -2,7 +2,7 @@
 
 English | [简体中文](./README.md)
 
-A single, comfortable DeepSeek Harness queue surface for **editing, removing, steering, reordering, clear-all, and 10-second undo**.
+A single, comfortable DeepSeek Harness queue surface for **editing, removing, steering, reordering, and removing all**.
 
 Queue Plus takes over the QueueDock through DSH's public slot-priority mechanism. It does not hide DOM or render the same messages twice, and the stock QueueDock returns automatically when the plugin unloads.
 
@@ -11,8 +11,8 @@ Queue Plus takes over the QueueDock through DSH's public slot-priority mechanism
 - Keep edit, remove, and steer controls in the default view; individual removal uses a compact inline confirmation.
 - Switch the same list in place with “Sort” instead of opening a second panel or scrollbar.
 - Reorder with a dedicated drag handle, plus move-up and move-down buttons for keyboard and touch use.
-- Clear the complete next-turn queue in one action.
-- Undo clear-all for 10 seconds; restored prompts stay ahead of work added during the undo window.
+- Remove all uses an inline confirmation and then applies DSH's official per-item removal operation sequentially.
+- Bulk removal only targets messages visible when it is confirmed, so messages queued afterward are not removed.
 - Show the server-confirmed order immediately, then reconcile it with DSH's authoritative queue snapshot.
 - Compare-and-swap protection rejects stale browser actions instead of mutating a queue that has already changed.
 - DSH-native spacing, colors, icons, Chinese and English UI copy, visible focus, screen-reader announcements, and 44px coarse-pointer targets.
@@ -60,10 +60,9 @@ dsh plugin --profile web remove dsh-queue-plus
 
 - A reorder is one contiguous replacement splice, so Host observers see only the final order.
 - The browser renders one queue surface; sorting reuses the authoritative rows instead of copying business state.
-- Undo records live only in the current Host process for 10 seconds, with at most 64 records retained.
-- Undo is rejected after Host restart, Agent replacement, timeout, or an identity conflict.
+- Single and bulk removal both use DSH's official `conversation.updateQueue(..., { kind: 'remove' })`; bulk removal is not atomic and can partially complete if the queue changes concurrently.
 - The plugin does not touch steering/context queues or queues owned by a parent Agent.
-- The browser uses a same-origin `application/json` POST route; responses disable caching and request bodies are capped.
+- The browser uses a same-origin `application/json` POST route only for reordering; responses disable caching and request bodies are capped.
 
 ## Compatibility
 

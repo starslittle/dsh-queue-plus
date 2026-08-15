@@ -1,4 +1,4 @@
-/** Queue Plus browser half: a unified, reversible replacement for the stock queue dock. */
+/** Queue Plus browser half: a unified replacement for the stock queue dock. */
 import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'

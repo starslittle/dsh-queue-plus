@@ -122,4 +122,34 @@ describe('unified queue dock', () => {
 
     expect(updateQueue).toHaveBeenCalledWith('a', { kind: 'remove' })
   })
+
+  it('confirms remove-all and delegates every click-time row to the official queue action', async () => {
+    const { container, updateQueue } = await renderQueue([row('a', '第一条'), row('b', '第二条')])
+
+    await act(async () => buttonWithText(container, '2 条排队消息').click())
+    await act(async () => buttonWithText(container, '删除全部').click())
+
+    expect(updateQueue).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('确认删除 2 条排队消息？')
+
+    await act(async () => buttonWithText(container, '确认删除').click())
+
+    expect(updateQueue).toHaveBeenCalledTimes(2)
+    expect(updateQueue).toHaveBeenNthCalledWith(1, 'a', { kind: 'remove' })
+    expect(updateQueue).toHaveBeenNthCalledWith(2, 'b', { kind: 'remove' })
+  })
+
+  it('continues official removals when one click-time row has already changed state', async () => {
+    const { container, updateQueue } = await renderQueue([
+      row('a', '第一条'), row('b', '第二条'), row('c', '第三条'),
+    ])
+    updateQueue.mockRejectedValueOnce(new Error('already claimed'))
+
+    await act(async () => buttonWithText(container, '3 条排队消息').click())
+    await act(async () => buttonWithText(container, '删除全部').click())
+    await act(async () => buttonWithText(container, '确认删除').click())
+
+    expect(updateQueue).toHaveBeenCalledTimes(3)
+    expect(container.textContent).toContain('已删除 2/3 条，其余消息状态已变化。')
+  })
 })
