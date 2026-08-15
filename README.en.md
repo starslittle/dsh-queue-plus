@@ -4,6 +4,8 @@ English | [简体中文](./README.md)
 
 A single, comfortable DeepSeek Harness queue surface for **editing, removing, steering, reordering, and removing all**.
 
+![Queue Plus real interaction demo](./assets/dsh-queue-plus-demo.gif)
+
 Queue Plus takes over the QueueDock through DSH's public slot-priority mechanism. It does not hide DOM or render the same messages twice, and the stock QueueDock returns automatically when the plugin unloads.
 
 ## Features

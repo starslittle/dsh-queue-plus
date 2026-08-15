@@ -4,6 +4,8 @@
 
 把 DeepSeek Harness 的排队消息整合成一个简单、完整的面板：**编辑、删除、插话、调整顺序和删除全部**。
 
+![Queue Plus 真实交互演示](./assets/dsh-queue-plus-demo.gif)
+
 Queue Plus 使用 DSH 官方插槽的优先级覆盖机制接管 QueueDock，不隐藏 DOM，也不会重复渲染同一批消息。插件卸载或停止后，官方 QueueDock 会自动恢复。
 
 ## 功能
