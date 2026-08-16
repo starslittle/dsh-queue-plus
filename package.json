@@ -2,7 +2,7 @@
   "name": "dsh-queue-plus",
   "version": "0.3.0",
   "private": false,
-  "description": "A unified, accessible prompt queue for DeepSeek Harness with editing, steering, reordering, and official queue removal.",
+  "description": "A calm, unified prompt queue for DeepSeek Harness with smart expansion, persistent confirmations, editing, steering, accessible reordering, and official queue removal.",
   "author": "starslittle",
   "homepage": "https://github.com/starslittle/dsh-queue-plus#readme",
   "repository": {

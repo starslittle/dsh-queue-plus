@@ -11,7 +11,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { moveQueue, QueuePlusClientError } from './api'
 import { NS } from './locales'
 import { styles } from './styles'
@@ -100,6 +100,10 @@ export function QueuePlusDock({
   const [dragging, setDragging] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   const listId = useId()
+  const sortHintId = useId()
+  const manuallyCollapsed = useRef(false)
+  const previousQueueLength = useRef(0)
+  const confirmingClearOrder = useRef<string[] | null>(null)
 
   const displayQueue = useMemo(() => projectOrder(queue, pendingOrder), [pendingOrder, queue])
 
@@ -110,26 +114,30 @@ export function QueuePlusDock({
   }, [pendingOrder, queue])
 
   useEffect(() => {
-    if (queue.length === 0) setCollapsed(true)
+    const previousLength = previousQueueLength.current
+    if (queue.length === 0) {
+      setCollapsed(true)
+      manuallyCollapsed.current = false
+    } else if (!manuallyCollapsed.current && (previousLength === 0 || (previousLength === 1 && queue.length > 1))) {
+      setCollapsed(false)
+    }
+    previousQueueLength.current = queue.length
     if (queue.length < 2 || !queueMutable) {
       setSorting(false)
       setConfirmingClear(false)
+      confirmingClearOrder.current = null
+    }
+    if (confirmingClear && (confirmingClearOrder.current === null
+      || !sameOrder(ids(queue), confirmingClearOrder.current))) {
+      setConfirmingClear(false)
+      confirmingClearOrder.current = null
     }
     if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
     if (confirmingRemove !== null
       && (!queueMutable || !queue.some(row => row.id === confirmingRemove))) setConfirmingRemove(null)
     if (dragging !== null && !queue.some(row => String(row.id) === dragging)) setDragging(null)
     if (dragOver !== null && !queue.some(row => String(row.id) === dragOver)) setDragOver(null)
-  }, [confirmingRemove, dragOver, dragging, editing, queue, queueMutable])
-
-  useEffect(() => {
-    if (confirmingRemove === null && !confirmingClear) return undefined
-    const timer = window.setTimeout(() => {
-      setConfirmingRemove(null)
-      setConfirmingClear(false)
-    }, 5_000)
-    return () => window.clearTimeout(timer)
-  }, [confirmingClear, confirmingRemove])
+  }, [confirmingClear, confirmingRemove, dragOver, dragging, editing, queue, queueMutable])
 
   useEffect(() => {
     if (notice === null) return undefined
@@ -227,6 +235,7 @@ export function QueuePlusDock({
     setEditing(null)
     setConfirmingRemove(null)
     setConfirmingClear(false)
+    confirmingClearOrder.current = null
     setSorting(false)
     setCollapsed(removed === targets.length)
     setNotice(removed === targets.length
@@ -238,11 +247,20 @@ export function QueuePlusDock({
   const toggleSorting = (): void => {
     if (sorting) {
       setSorting(false)
+      if (manuallyCollapsed.current) setCollapsed(true)
       return
     }
     setCollapsed(false)
     setNotice(null)
     setSorting(true)
+  }
+
+  const toggleCollapsed = (): void => {
+    setCollapsed(value => {
+      const next = !value
+      manuallyCollapsed.current = next
+      return next
+    })
   }
 
   return (
@@ -251,7 +269,12 @@ export function QueuePlusDock({
       data-queue-plus-dock=""
       data-queue-plus-mode={sorting ? 'sort' : 'manage'}
     >
-      <section className={styles.panel} data-sorting={sorting || undefined} aria-label={t('panel.label')}>
+      <section
+        className={styles.panel}
+        data-sorting={sorting || undefined}
+        data-drag-active={dragging !== null || undefined}
+        aria-label={t('panel.label')}
+      >
         {displayQueue.length > 1 && (
           <header className={styles.header}>
             <button
@@ -260,7 +283,7 @@ export function QueuePlusDock({
               aria-expanded={listVisible}
               aria-controls={listId}
               disabled={interactionActive || sorting}
-              onClick={() => setCollapsed(value => !value)}
+              onClick={toggleCollapsed}
             >
               <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
               <span className={styles.count}>{t('panel.count', { count: displayQueue.length })}</span>
@@ -285,13 +308,13 @@ export function QueuePlusDock({
                 aria-label={listVisible ? t('action.collapse') : t('action.expand')}
                 aria-expanded={listVisible}
                 aria-controls={listId}
-              disabled={interactionActive}
-              onClick={() => setCollapsed(value => !value)}
-            >
+                disabled={interactionActive}
+                onClick={toggleCollapsed}
+              >
                 <span aria-hidden="true">
                   {listVisible ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
                 </span>
-            </button>
+              </button>
             )}
           </header>
         )}
@@ -302,10 +325,15 @@ export function QueuePlusDock({
             className={styles.body}
             data-sorting={sorting || undefined}
             data-drag-active={dragging !== null || undefined}
+            aria-busy={busy === 'move'}
             hidden={!listVisible}
           >
             {listVisible && (
-              <ol className={styles.list} aria-label={sorting ? t('panel.sortList') : t('panel.list')}>
+              <ol
+                className={styles.list}
+                aria-label={sorting ? t('panel.sortList') : t('panel.list')}
+                aria-describedby={sorting ? sortHintId : undefined}
+              >
                 {displayQueue.map((row, index) => {
                   const itemId = String(row.id)
                   const rowEditing = editing?.id === row.id
@@ -319,7 +347,7 @@ export function QueuePlusDock({
                       data-dragging={dragging === itemId || undefined}
                       data-dragover={dragOver === itemId || undefined}
                       onDragEnter={() => {
-                        if (sorting && dragging !== null) setDragOver(itemId)
+                        if (sorting && dragging !== null && dragging !== itemId) setDragOver(itemId)
                       }}
                       onDragOver={(event) => {
                         if (!sorting || dragging === null) return
@@ -340,10 +368,12 @@ export function QueuePlusDock({
                               <span
                                 className={styles.dragHandle}
                                 draggable={busy === null}
+                                data-disabled={busy !== null || undefined}
                                 aria-hidden="true"
                                 title={t('action.drag', { position: index + 1 })}
                                 onDragStart={(event) => {
                                   setDragging(itemId)
+                                  setDragOver(null)
                                   event.dataTransfer.effectAllowed = 'move'
                                   event.dataTransfer.setData('text/plain', itemId)
                                 }}
@@ -530,48 +560,54 @@ export function QueuePlusDock({
             )}
 
             {listVisible && queueMutable && displayQueue.length > 1 && (
-              <footer className={styles.footer}>
-                <span className={styles.footnote}>
+              <footer className={styles.footer} data-sorting={sorting || undefined}>
+                <span id={sorting ? sortHintId : undefined} className={styles.footnote}>
                   {sorting
-                    ? t('hint.sort')
+                    ? dragging === null ? t('hint.sort') : t('hint.drop')
                     : confirmingClear
                       ? t('status.confirmClear', { count: displayQueue.length })
                       : t('hint.clear')}
                 </span>
-                {confirmingClear
-                  ? (
-                      <span className={styles.actions}>
+                {!sorting && (
+                  confirmingClear
+                    ? (
+                        <span className={styles.actions}>
+                          <button
+                            type="button"
+                            className={styles.inlineButton}
+                            disabled={busy !== null}
+                            onClick={() => {
+                              setConfirmingClear(false)
+                              confirmingClearOrder.current = null
+                            }}
+                          >
+                            {t('action.cancelRemove')}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.dangerButton}
+                            disabled={busy !== null}
+                            onClick={() => { void clearAll() }}
+                          >
+                            {t('action.confirmClear')}
+                          </button>
+                        </span>
+                      )
+                    : (
                         <button
                           type="button"
-                          className={styles.inlineButton}
-                          disabled={busy !== null}
-                          onClick={() => setConfirmingClear(false)}
+                          className={styles.clearButton}
+                          disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                          onClick={() => {
+                            setNotice(null)
+                            confirmingClearOrder.current = expectedOrder()
+                            setConfirmingClear(true)
+                          }}
                         >
-                          {t('action.cancelRemove')}
+                          {t('action.clear')}
                         </button>
-                        <button
-                          type="button"
-                          className={styles.dangerButton}
-                          disabled={busy !== null}
-                          onClick={() => { void clearAll() }}
-                        >
-                          {t('action.confirmClear')}
-                        </button>
-                      </span>
-                    )
-                  : (
-                      <button
-                        type="button"
-                        className={styles.clearButton}
-                        disabled={busy !== null || editing !== null || confirmingRemove !== null}
-                        onClick={() => {
-                          setNotice(null)
-                          setConfirmingClear(true)
-                        }}
-                      >
-                        {t('action.clear')}
-                      </button>
-                    )}
+                      )
+                )}
               </footer>
             )}
           </div>
