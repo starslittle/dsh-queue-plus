@@ -11,8 +11,8 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { useEffect, useId, useMemo, useState } from 'react'
-import { clearQueue, moveQueue, QueuePlusClientError, undoClear } from './api'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { moveQueue, QueuePlusClientError } from './api'
 import { NS } from './locales'
 import { styles } from './styles'
 
@@ -26,12 +26,6 @@ export interface QueuePlusDockInjected {
 export type QueuePlusDockProps = PropsRuntime<'conversation.input.dock'>
   & PropsLocale<typeof NS>
   & QueuePlusDockInjected
-
-interface UndoState {
-  readonly token: string
-  readonly count: number
-  readonly expiresAt: number
-}
 
 interface EditingState {
   readonly id: QueueItemId
@@ -48,7 +42,7 @@ interface Announcement {
   readonly text: string
 }
 
-type BusyAction = 'queue' | 'move' | 'clear' | 'undo'
+type BusyAction = 'queue' | 'move' | 'clear'
 
 function queued(rows: readonly QueuedMessage[]): QueuedMessage[] {
   return rows.filter(row => row.placement === 'queued')
@@ -79,10 +73,6 @@ function errorText(error: unknown, t: QueuePlusDockProps['t'], fallback?: string
     if (['QUEUE_CHANGED', 'ITEM_NOT_FOUND', 'EMPTY_QUEUE', 'INVALID_TARGET'].includes(error.code)) {
       return t('error.queueChanged')
     }
-    if (error.code === 'UNDO_EXPIRED' || error.code === 'UNDO_NOT_FOUND') return t('error.expired')
-    if (['UNDO_CONFLICT', 'UNDO_IN_PROGRESS', 'AGENT_CHANGED'].includes(error.code)) {
-      return t('error.undoConflict')
-    }
   }
   return fallback ?? t('error.generic')
 }
@@ -102,15 +92,18 @@ export function QueuePlusDock({
   const [sorting, setSorting] = useState(false)
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [confirmingRemove, setConfirmingRemove] = useState<QueueItemId | null>(null)
+  const [confirmingClear, setConfirmingClear] = useState(false)
   const [busy, setBusy] = useState<BusyAction | null>(null)
-  const [undo, setUndo] = useState<UndoState | null>(null)
-  const [clock, setClock] = useState(Date.now())
   const [notice, setNotice] = useState<Notice | null>(null)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   const listId = useId()
+  const sortHintId = useId()
+  const manuallyCollapsed = useRef(false)
+  const previousQueueLength = useRef(0)
+  const confirmingClearOrder = useRef<string[] | null>(null)
 
   const displayQueue = useMemo(() => projectOrder(queue, pendingOrder), [pendingOrder, queue])
 
@@ -121,34 +114,30 @@ export function QueuePlusDock({
   }, [pendingOrder, queue])
 
   useEffect(() => {
-    if (queue.length === 0) setCollapsed(true)
-    if (queue.length < 2 || !queueMutable) setSorting(false)
+    const previousLength = previousQueueLength.current
+    if (queue.length === 0) {
+      setCollapsed(true)
+      manuallyCollapsed.current = false
+    } else if (!manuallyCollapsed.current && (previousLength === 0 || (previousLength === 1 && queue.length > 1))) {
+      setCollapsed(false)
+    }
+    previousQueueLength.current = queue.length
+    if (queue.length < 2 || !queueMutable) {
+      setSorting(false)
+      setConfirmingClear(false)
+      confirmingClearOrder.current = null
+    }
+    if (confirmingClear && (confirmingClearOrder.current === null
+      || !sameOrder(ids(queue), confirmingClearOrder.current))) {
+      setConfirmingClear(false)
+      confirmingClearOrder.current = null
+    }
     if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
     if (confirmingRemove !== null
       && (!queueMutable || !queue.some(row => row.id === confirmingRemove))) setConfirmingRemove(null)
     if (dragging !== null && !queue.some(row => String(row.id) === dragging)) setDragging(null)
     if (dragOver !== null && !queue.some(row => String(row.id) === dragOver)) setDragOver(null)
-  }, [confirmingRemove, dragOver, dragging, editing, queue, queueMutable])
-
-  useEffect(() => {
-    if (confirmingRemove === null) return undefined
-    const timer = window.setTimeout(() => setConfirmingRemove(null), 5_000)
-    return () => window.clearTimeout(timer)
-  }, [confirmingRemove])
-
-  useEffect(() => {
-    if (undo === null) return undefined
-    setClock(Date.now())
-    const timer = window.setInterval(() => {
-      const now = Date.now()
-      setClock(now)
-      if (now >= undo.expiresAt) {
-        window.clearInterval(timer)
-        setUndo(current => current?.token === undo.token ? null : current)
-      }
-    }, 250)
-    return () => window.clearInterval(timer)
-  }, [undo])
+  }, [confirmingClear, confirmingRemove, dragOver, dragging, editing, queue, queueMutable])
 
   useEffect(() => {
     if (notice === null) return undefined
@@ -156,11 +145,10 @@ export function QueuePlusDock({
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  if (queue.length === 0 && undo === null && notice === null) return null
+  if (queue.length === 0 && notice === null) return null
 
-  const interactionActive = busy !== null || editing !== null || confirmingRemove !== null
+  const interactionActive = busy !== null || editing !== null || confirmingRemove !== null || confirmingClear
   const listVisible = displayQueue.length === 1 || !collapsed || sorting || editing !== null
-  const seconds = undo === null ? 0 : Math.max(0, Math.ceil((undo.expiresAt - clock) / 1_000))
   const expectedOrder = (): string[] => ids(displayQueue)
 
   const announcePosition = (position: number): void => {
@@ -230,50 +218,49 @@ export function QueuePlusDock({
 
   const clearAll = async (): Promise<void> => {
     if (busy !== null || displayQueue.length === 0) return
+    const targets = [...displayQueue]
     setBusy('clear')
     setNotice(null)
-    try {
-      const result = await clearQueue(String(sessionId), expectedOrder())
-      setUndo({ token: result.token, count: result.count, expiresAt: result.expiresAt })
-      setPendingOrder(null)
-      setEditing(null)
-      setConfirmingRemove(null)
-      setSorting(false)
-      setCollapsed(true)
-    } catch (error: unknown) {
-      setNotice({ level: 'error', text: errorText(error, t) })
-    } finally {
-      setBusy(null)
+    let removed = 0
+    for (const row of targets) {
+      try {
+        await updateQueue(row.id, { kind: 'remove' })
+        removed += 1
+      } catch {
+        // Continue through the click-time snapshot. A row can be claimed by
+        // the Agent between official per-item removals.
+      }
     }
-  }
-
-  const restore = async (): Promise<void> => {
-    if (busy !== null || undo === null) return
-    const current = undo
-    setBusy('undo')
-    setNotice(null)
-    try {
-      const result = await undoClear(String(sessionId), current.token)
-      setUndo(null)
-      setCollapsed(false)
-      setNotice({ level: 'info', text: t('status.restored', { count: result.restored }) })
-    } catch (error: unknown) {
-      if (error instanceof QueuePlusClientError
-        && (error.code === 'UNDO_EXPIRED' || error.code === 'UNDO_NOT_FOUND')) setUndo(null)
-      setNotice({ level: 'error', text: errorText(error, t) })
-    } finally {
-      setBusy(null)
-    }
+    setPendingOrder(null)
+    setEditing(null)
+    setConfirmingRemove(null)
+    setConfirmingClear(false)
+    confirmingClearOrder.current = null
+    setSorting(false)
+    setCollapsed(removed === targets.length)
+    setNotice(removed === targets.length
+      ? { level: 'info', text: t('status.cleared', { count: removed }) }
+      : { level: 'error', text: t('error.clearPartial', { removed, count: targets.length }) })
+    setBusy(null)
   }
 
   const toggleSorting = (): void => {
     if (sorting) {
       setSorting(false)
+      if (manuallyCollapsed.current) setCollapsed(true)
       return
     }
     setCollapsed(false)
     setNotice(null)
     setSorting(true)
+  }
+
+  const toggleCollapsed = (): void => {
+    setCollapsed(value => {
+      const next = !value
+      manuallyCollapsed.current = next
+      return next
+    })
   }
 
   return (
@@ -282,7 +269,12 @@ export function QueuePlusDock({
       data-queue-plus-dock=""
       data-queue-plus-mode={sorting ? 'sort' : 'manage'}
     >
-      <section className={styles.panel} data-sorting={sorting || undefined} aria-label={t('panel.label')}>
+      <section
+        className={styles.panel}
+        data-sorting={sorting || undefined}
+        data-drag-active={dragging !== null || undefined}
+        aria-label={t('panel.label')}
+      >
         {displayQueue.length > 1 && (
           <header className={styles.header}>
             <button
@@ -291,7 +283,7 @@ export function QueuePlusDock({
               aria-expanded={listVisible}
               aria-controls={listId}
               disabled={interactionActive || sorting}
-              onClick={() => setCollapsed(value => !value)}
+              onClick={toggleCollapsed}
             >
               <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
               <span className={styles.count}>{t('panel.count', { count: displayQueue.length })}</span>
@@ -303,7 +295,7 @@ export function QueuePlusDock({
                 className={styles.modeButton}
                 data-active={sorting || undefined}
                 aria-pressed={sorting}
-                disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                disabled={busy !== null || editing !== null || confirmingRemove !== null || confirmingClear}
                 onClick={toggleSorting}
               >
                 {sorting ? t('action.finishSort') : t('action.sort')}
@@ -316,13 +308,13 @@ export function QueuePlusDock({
                 aria-label={listVisible ? t('action.collapse') : t('action.expand')}
                 aria-expanded={listVisible}
                 aria-controls={listId}
-              disabled={interactionActive}
-              onClick={() => setCollapsed(value => !value)}
-            >
+                disabled={interactionActive}
+                onClick={toggleCollapsed}
+              >
                 <span aria-hidden="true">
                   {listVisible ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
                 </span>
-            </button>
+              </button>
             )}
           </header>
         )}
@@ -333,10 +325,15 @@ export function QueuePlusDock({
             className={styles.body}
             data-sorting={sorting || undefined}
             data-drag-active={dragging !== null || undefined}
+            aria-busy={busy === 'move'}
             hidden={!listVisible}
           >
             {listVisible && (
-              <ol className={styles.list} aria-label={sorting ? t('panel.sortList') : t('panel.list')}>
+              <ol
+                className={styles.list}
+                aria-label={sorting ? t('panel.sortList') : t('panel.list')}
+                aria-describedby={sorting ? sortHintId : undefined}
+              >
                 {displayQueue.map((row, index) => {
                   const itemId = String(row.id)
                   const rowEditing = editing?.id === row.id
@@ -350,7 +347,7 @@ export function QueuePlusDock({
                       data-dragging={dragging === itemId || undefined}
                       data-dragover={dragOver === itemId || undefined}
                       onDragEnter={() => {
-                        if (sorting && dragging !== null) setDragOver(itemId)
+                        if (sorting && dragging !== null && dragging !== itemId) setDragOver(itemId)
                       }}
                       onDragOver={(event) => {
                         if (!sorting || dragging === null) return
@@ -371,10 +368,12 @@ export function QueuePlusDock({
                               <span
                                 className={styles.dragHandle}
                                 draggable={busy === null}
+                                data-disabled={busy !== null || undefined}
                                 aria-hidden="true"
                                 title={t('action.drag', { position: index + 1 })}
                                 onDragStart={(event) => {
                                   setDragging(itemId)
+                                  setDragOver(null)
                                   event.dataTransfer.effectAllowed = 'move'
                                   event.dataTransfer.setData('text/plain', itemId)
                                 }}
@@ -505,7 +504,7 @@ export function QueuePlusDock({
                                               aria-label={t('action.edit')}
                                               title={row.text === null ? t('action.editUnsupported') : undefined}
                                               disabled={busy !== null || otherEditActive
-                                                || confirmingRemove !== null || row.text === null}
+                                                || confirmingRemove !== null || confirmingClear || row.text === null}
                                               onClick={() => {
                                                 if (row.text !== null) setEditing({ id: row.id, text: row.text })
                                               }}
@@ -518,7 +517,8 @@ export function QueuePlusDock({
                                               type="button"
                                               className={styles.iconButton}
                                               aria-label={t('action.remove')}
-                                              disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                                              disabled={busy !== null || editing !== null
+                                                || confirmingRemove !== null || confirmingClear}
                                               onClick={() => {
                                                 setNotice(null)
                                                 setConfirmingRemove(row.id)
@@ -539,7 +539,7 @@ export function QueuePlusDock({
                                               aria-label={t('action.steer')}
                                               title={running ? undefined : t('action.steerUnavailable')}
                                               disabled={busy !== null || editing !== null
-                                                || confirmingRemove !== null || !running}
+                                                || confirmingRemove !== null || confirmingClear || !running}
                                               onClick={() => {
                                                 void applyQueueAction(row.id, { kind: 'steer' }, t('error.steer'))
                                               }}
@@ -560,37 +560,56 @@ export function QueuePlusDock({
             )}
 
             {listVisible && queueMutable && displayQueue.length > 1 && (
-              <footer className={styles.footer}>
-                <span className={styles.footnote}>{sorting ? t('hint.sort') : t('hint.undo')}</span>
-                <button
-                  type="button"
-                  className={styles.clearButton}
-                  disabled={busy !== null || editing !== null || confirmingRemove !== null}
-                  onClick={() => { void clearAll() }}
-                >
-                  {t('action.clear')}
-                </button>
+              <footer className={styles.footer} data-sorting={sorting || undefined}>
+                <span id={sorting ? sortHintId : undefined} className={styles.footnote}>
+                  {sorting
+                    ? dragging === null ? t('hint.sort') : t('hint.drop')
+                    : confirmingClear
+                      ? t('status.confirmClear', { count: displayQueue.length })
+                      : t('hint.clear')}
+                </span>
+                {!sorting && (
+                  confirmingClear
+                    ? (
+                        <span className={styles.actions}>
+                          <button
+                            type="button"
+                            className={styles.inlineButton}
+                            disabled={busy !== null}
+                            onClick={() => {
+                              setConfirmingClear(false)
+                              confirmingClearOrder.current = null
+                            }}
+                          >
+                            {t('action.cancelRemove')}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.dangerButton}
+                            disabled={busy !== null}
+                            onClick={() => { void clearAll() }}
+                          >
+                            {t('action.confirmClear')}
+                          </button>
+                        </span>
+                      )
+                    : (
+                        <button
+                          type="button"
+                          className={styles.clearButton}
+                          disabled={busy !== null || editing !== null || confirmingRemove !== null}
+                          onClick={() => {
+                            setNotice(null)
+                            confirmingClearOrder.current = expectedOrder()
+                            setConfirmingClear(true)
+                          }}
+                        >
+                          {t('action.clear')}
+                        </button>
+                      )
+                )}
               </footer>
             )}
-          </div>
-        )}
-
-        {undo !== null && (
-          <div
-            className={styles.undo}
-            data-attached={displayQueue.length > 0 || undefined}
-            role="status"
-            aria-live="polite"
-          >
-            <span className={styles.undoText}>{t('status.cleared', { count: undo.count })}</span>
-            <button
-              type="button"
-              className={styles.undoButton}
-              disabled={busy !== null || seconds === 0}
-              onClick={() => { void restore() }}
-            >
-              {t('action.undo', { seconds })}
-            </button>
           </div>
         )}
 

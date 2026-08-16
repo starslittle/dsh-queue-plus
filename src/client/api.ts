@@ -1,12 +1,10 @@
 import {
   QUEUE_PLUS_PATH,
-  type QueueClearResult,
   type QueueMoveRequest,
   type QueueMoveResult,
   type QueuePlusErrorBody,
   type QueuePlusRequest,
   type QueuePlusResult,
-  type QueueUndoResult,
 } from '../shared'
 
 export class QueuePlusClientError extends Error {
@@ -40,17 +38,5 @@ async function call(request: QueuePlusRequest): Promise<QueuePlusResult> {
 export async function moveQueue(request: QueueMoveRequest): Promise<QueueMoveResult> {
   const result = await call(request)
   if (result.action !== 'move') throw new QueuePlusClientError('BAD_RESPONSE', 'unexpected queue response')
-  return result
-}
-
-export async function clearQueue(sessionId: string, expectedOrder: string[]): Promise<QueueClearResult> {
-  const result = await call({ action: 'clear', sessionId, expectedOrder })
-  if (result.action !== 'clear') throw new QueuePlusClientError('BAD_RESPONSE', 'unexpected queue response')
-  return result
-}
-
-export async function undoClear(sessionId: string, token: string): Promise<QueueUndoResult> {
-  const result = await call({ action: 'undo', sessionId, token })
-  if (result.action !== 'undo') throw new QueuePlusClientError('BAD_RESPONSE', 'unexpected queue response')
   return result
 }

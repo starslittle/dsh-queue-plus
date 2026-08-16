@@ -45,7 +45,7 @@ function translate(key: string, params: Record<string, unknown> = {}): string {
 }
 
 async function renderQueue(rows: readonly QueuedMessage[]) {
-  const snapshot = {
+  let snapshot = {
     queue: rows,
     running: true,
     subagent: null,
@@ -65,8 +65,18 @@ async function renderQueue(rows: readonly QueuedMessage[]) {
     act(() => root.unmount())
     container.remove()
   })
-  await act(async () => root.render(createElement(QueuePlusDock, props)))
-  return { container, updateQueue }
+  const render = async (): Promise<void> => {
+    await act(async () => root.render(createElement(QueuePlusDock, props)))
+  }
+  await render()
+  return {
+    container,
+    updateQueue,
+    rerenderQueue: async (nextRows: readonly QueuedMessage[]): Promise<void> => {
+      snapshot = { ...snapshot, queue: nextRows }
+      await render()
+    },
+  }
 }
 
 function buttonWithText(container: ParentNode, text: string): HTMLButtonElement {
@@ -80,7 +90,7 @@ describe('unified queue dock', () => {
     const { container } = await renderQueue([row('a', '你好'), row('b', '下一条')])
 
     expect(container.textContent?.match(/2 条排队消息/g)).toHaveLength(1)
-    expect(container.querySelectorAll('ol')).toHaveLength(0)
+    expect(container.querySelectorAll('ol')).toHaveLength(1)
     expect(container.querySelector('[data-queue-plus-mode="manage"]')).not.toBeNull()
 
     await act(async () => buttonWithText(container, '排序').click())
@@ -98,6 +108,25 @@ describe('unified queue dock', () => {
     expect(container.querySelector('[data-queue-plus-mode="manage"]')).not.toBeNull()
     expect(container.querySelectorAll('ol')).toHaveLength(1)
     expect(container.querySelectorAll('[aria-label="编辑消息"]')).toHaveLength(2)
+  })
+
+  it('expands a new queue automatically and remembers a manual collapse until the queue clears', async () => {
+    const first = row('a', '第一条')
+    const second = row('b', '第二条')
+    const { container, rerenderQueue } = await renderQueue([first, second])
+
+    expect(container.querySelectorAll('ol')).toHaveLength(1)
+    await act(async () => buttonWithText(container, '2 条排队消息').click())
+    expect(container.querySelectorAll('ol')).toHaveLength(0)
+
+    await rerenderQueue([first, second, row('c', '第三条')])
+    expect(container.querySelectorAll('ol')).toHaveLength(0)
+
+    await rerenderQueue([])
+    expect(container.querySelector('[data-queue-plus-dock]')).toBeNull()
+
+    await rerenderQueue([row('d', '新第一条'), row('e', '新第二条')])
+    expect(container.querySelectorAll('ol')).toHaveLength(1)
   })
 
   it('keeps a single queued message compact and does not offer sorting', async () => {
@@ -121,5 +150,77 @@ describe('unified queue dock', () => {
     await act(async () => buttonWithText(container, '确认删除').click())
 
     expect(updateQueue).toHaveBeenCalledWith('a', { kind: 'remove' })
+  })
+
+  it('keeps a removal confirmation open until the user decides', async () => {
+    vi.useFakeTimers()
+    try {
+      const { container } = await renderQueue([row('a', '待确认删除')])
+      const remove = container.querySelector('[aria-label="删除消息"]')
+      if (!(remove instanceof HTMLButtonElement)) throw new Error('remove button not found')
+
+      await act(async () => remove.click())
+      act(() => vi.advanceTimersByTime(6_000))
+
+      expect(buttonWithText(container, '确认删除').disabled).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps remove-all confirmation open unless the queue changes', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = row('a', '第一条')
+      const second = row('b', '第二条')
+      const { container, rerenderQueue } = await renderQueue([first, second])
+
+      await act(async () => buttonWithText(container, '删除全部').click())
+      act(() => vi.advanceTimersByTime(6_000))
+      expect(container.textContent).toContain('确认删除 2 条排队消息？')
+
+      await rerenderQueue([first, second, row('c', '新加入')])
+      expect(container.textContent).not.toContain('确认删除 3 条排队消息？')
+      expect(buttonWithText(container, '删除全部').disabled).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps destructive actions out of the sorting workspace', async () => {
+    const { container } = await renderQueue([row('a', '第一条'), row('b', '第二条')])
+
+    await act(async () => buttonWithText(container, '排序').click())
+
+    expect(container.textContent).toContain('拖动六点手柄，或使用上下箭头')
+    expect([...container.querySelectorAll('button')].some(button => button.textContent === '删除全部')).toBe(false)
+  })
+
+  it('confirms remove-all and delegates every click-time row to the official queue action', async () => {
+    const { container, updateQueue } = await renderQueue([row('a', '第一条'), row('b', '第二条')])
+
+    await act(async () => buttonWithText(container, '删除全部').click())
+
+    expect(updateQueue).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('确认删除 2 条排队消息？')
+
+    await act(async () => buttonWithText(container, '确认删除').click())
+
+    expect(updateQueue).toHaveBeenCalledTimes(2)
+    expect(updateQueue).toHaveBeenNthCalledWith(1, 'a', { kind: 'remove' })
+    expect(updateQueue).toHaveBeenNthCalledWith(2, 'b', { kind: 'remove' })
+  })
+
+  it('continues official removals when one click-time row has already changed state', async () => {
+    const { container, updateQueue } = await renderQueue([
+      row('a', '第一条'), row('b', '第二条'), row('c', '第三条'),
+    ])
+    updateQueue.mockRejectedValueOnce(new Error('already claimed'))
+
+    await act(async () => buttonWithText(container, '删除全部').click())
+    await act(async () => buttonWithText(container, '确认删除').click())
+
+    expect(updateQueue).toHaveBeenCalledTimes(3)
+    expect(container.textContent).toContain('已删除 2/3 条，其余消息状态已变化。')
   })
 })

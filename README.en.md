@@ -2,32 +2,33 @@
 
 English | [简体中文](./README.md)
 
-A better stock queue: edit, remove, and steer, plus reorder, clear-all, and 10-second undo.
+A single, comfortable DeepSeek Harness queue surface for **editing, removing, steering, reordering, and removing all**.
 
-Turning it off or uninstalling restores the built-in queue immediately.
+![Queue Plus real interaction demo](./assets/dsh-queue-plus-demo.gif)
 
-![Reorder, clear, and 10-second undo](docs/demo.gif)
+Queue Plus takes over QueueDock through DSH's public slot mechanism without hiding or duplicating queued messages. The stock queue returns automatically when the plugin is disabled or removed.
+
+## Features
+
+- Expand a new queue automatically; remember a manual collapse until that queue clears.
+- Keep edit, remove, and steer controls in the default view; removal confirmation stays open until the user cancels, confirms, or the message state changes.
+- Select “Sort” to move the same list into a calm, focused reordering state; destructive actions stay hidden while reordering.
+- Reorder with a six-dot drag handle, plus move-up and move-down buttons for keyboard and touch use.
+- Remove all uses an inline confirmation and then applies DSH's official per-item removal operation sequentially.
+- Bulk removal only targets messages visible when it is confirmed, so messages queued afterward are not removed.
+- Show the server-confirmed order immediately, then reconcile it with DSH's authoritative queue snapshot.
+- Compare-and-swap protection rejects stale browser actions instead of mutating a queue that has already changed.
+- DSH-native spacing, colors, icons, Chinese and English UI copy, visible focus, screen-reader announcements, and 44px coarse-pointer targets.
 
 ## Install
 
-```sh
-dsh plugin --profile web add github:starslittle/dsh-queue-plus
-```
-
-Restart `dsh web`. Queue at least two prompts. **Sort** appears next to the queue title.
-
-Prebuilt package (no install-script permission):
+The recommended install is the prebuilt Release archive, which needs no install-script permission:
 
 ```sh
-dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.2.0/dsh-queue-plus-0.2.0.tgz
+dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.3.0/dsh-queue-plus-0.3.0.tgz
 ```
 
-## What you can do
-
-- Edit, remove, and steer, same as the stock queue
-- Click **Sort** and drag to change execution order in place
-- Clear the whole queue; undo for 10 seconds
-- If someone else changed the queue, the action is rejected instead of scrambling it
+Restart `dsh web`. Queue at least two prompts while an agent is running; **Sort** appears next to the queue title.
 
 ## Check that it loaded
 
@@ -39,15 +40,17 @@ dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/re
 
 ## Limits
 
-- Undo lives in the current Host process only, for 10 seconds
-- It does not touch steer / context queues or a parent agent's child queues
-- Uninstall restores the stock queue automatically
+- Single and bulk removal both call DSH's official `conversation.updateQueue(..., { kind: 'remove' })` operation.
+- Remove all targets only the rows visible at confirmation time; concurrent changes may cause partial completion but later messages are not removed.
+- Reordering uses server confirmation and stale-order protection, rejecting a changed queue instead of scrambling it.
+- The plugin does not touch steering/context queues or queues owned by a parent Agent.
+- The stock queue returns automatically after uninstall.
 
 <details>
 <summary>Pin a version, source install, and development</summary>
 
 ```sh
-dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.2.0
+dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.3.0
 ```
 
 Source install runs this repo's `prepare` build. pnpm 10+ requires an explicit allow in that profile's `pnpm-workspace.yaml`; only grant it to source you trust.

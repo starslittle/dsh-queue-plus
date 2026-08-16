@@ -1,8 +1,8 @@
 {
   "name": "dsh-queue-plus",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
-  "description": "Stock queue plus reorder, clear-all, and 10-second undo.",
+  "description": "A calm, unified prompt queue for DeepSeek Harness with smart expansion, persistent confirmations, editing, steering, accessible reordering, and official queue removal.",
   "author": "starslittle",
   "homepage": "https://github.com/starslittle/dsh-queue-plus#readme",
   "repository": {
@@ -33,6 +33,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "assets",
     "lib",
     "cordis.patch.yml",
     "README.md",
@@ -40,11 +41,11 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown && tsc -p tsconfig.build.json",
+    "build": "tsdown --config-loader native && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build",
-    "prepare": "tsdown && tsc -p tsconfig.build.json",
+    "prepare": "tsdown --config-loader native && tsc -p tsconfig.build.json",
     "prepublishOnly": "pnpm run check"
   },
   "dsh": {
