@@ -1,6 +1,6 @@
 {
   "name": "dsh-queue-plus",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "description": "A unified, accessible prompt queue for DeepSeek Harness with editing, steering, reordering, and official queue removal.",
   "author": "starslittle",
