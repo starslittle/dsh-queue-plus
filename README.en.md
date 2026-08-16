@@ -2,7 +2,7 @@
 
 English | [简体中文](./README.md)
 
-A single, comfortable DeepSeek Harness queue surface for **editing, removing, steering, reordering, and removing all**.
+A cleaner DSH queue panel for **editing, removing, steering, reordering, and bulk removal**.
 
 ![Queue Plus real interaction demo](./assets/dsh-queue-plus-demo.gif)
 
@@ -10,15 +10,11 @@ Queue Plus takes over QueueDock through DSH's public slot mechanism without hidi
 
 ## Features
 
-- Expand a new queue automatically; remember a manual collapse until that queue clears.
-- Keep edit, remove, and steer controls in the default view; removal confirmation stays open until the user cancels, confirms, or the message state changes.
-- Select “Sort” to move the same list into a calm, focused reordering state; destructive actions stay hidden while reordering.
-- Reorder with a six-dot drag handle, plus move-up and move-down buttons for keyboard and touch use.
-- Remove all uses an inline confirmation and then applies DSH's official per-item removal operation sequentially.
-- Bulk removal only targets messages visible when it is confirmed, so messages queued afterward are not removed.
-- Show the server-confirmed order immediately, then reconcile it with DSH's authoritative queue snapshot.
-- Compare-and-swap protection rejects stale browser actions instead of mutating a queue that has already changed.
-- DSH-native spacing, colors, icons, Chinese and English UI copy, visible focus, screen-reader announcements, and 44px coarse-pointer targets.
+- Edit, remove, or steer queued prompts.
+- Drag messages, or use the arrow buttons to reorder them.
+- Remove all with confirmation and DSH's official per-item removal.
+- Auto-expand new queues and remember manual collapse.
+- Supports Chinese, English, keyboard, and touch controls.
 
 ## Install
 
