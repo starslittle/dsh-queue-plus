@@ -37,9 +37,9 @@ dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/re
 ## 边界
 
 - 单条和批量删除都调用 DSH 官方 `conversation.updateQueue(..., { kind: 'remove' })`。
-- 删除全部只处理确认时可见的消息；并发变化时可能部分完成，不会误删随后加入的消息。
-- 排序使用服务端确认和并发保护；若队列已经变化，本次排序会拒绝而不是排乱。
-- 不操作 steering / context 队列，也不管理父 Agent 所有的 subagent 队列。
+- 删除全部只删除确认当时的持久排队消息，不含仍在发送中的本地回显；并发变化时可能部分完成，不会误删随后加入的消息。
+- 排序使用服务端确认和并发保护；若队列已经变化，本次排序会拒绝而不是排乱。排序只对主会话开放。
+- 可继续的 subagent 可以编辑、删除和插话；一次性 subagent 的队列只读。插件不处理 steering / context 队列。
 - 卸载后官方队列自动恢复。
 
 <details>
@@ -68,7 +68,7 @@ dsh plugin --profile web update dsh-queue-plus
 dsh plugin --profile web remove dsh-queue-plus
 ```
 
-面向 `@deepseek-ai/* 0.1.0-rc.6` 的公开 Agent Inbox 与 Web 插件契约。DSH 仍在 RC，契约若改需要同步升级插件。
+面向 `@deepseek-ai/* 0.2.1-rc.2` 的公开 Agent Inbox 与 Web 插件契约。排队行读 `inbox["next-turn"]`，不按 `placement` 过滤。DSH 仍在 RC，契约若改需要同步升级插件。
 
 </details>
 

@@ -1,17 +1,19 @@
-import type { ConversationSnapshot, QueuedMessage } from '@deepseek-ai/dsh-client-runtime/client'
+import type { InboxState } from '@deepseek-ai/dsh-agent/types'
+import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { act, createElement, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  IconCheckOutline16: () => null,
-  IconChevronDownOutline14: () => null,
-  IconChevronUpOutline14: () => null,
-  IconCloseOutline16: () => null,
-  IconEditOutline16: () => null,
-  IconQueueOutline14: () => null,
-  IconSendOutline14: () => null,
-  IconTrashOutline16: () => null,
+  IconCheckOutlineRegular: () => null,
+  IconChevronDownOutlineRegular: () => null,
+  IconChevronUpOutlineRegular: () => null,
+  IconCloseOutlineRegular: () => null,
+  IconEditOutlineRegular: () => null,
+  IconQueueOutlineRegular: () => null,
+  IconSendOutlineRegular: () => null,
+  IconTrashOutlineRegular: () => null,
   Tooltip: ({ children }: { children: ReactNode }) => children,
 }))
 
@@ -26,15 +28,20 @@ afterEach(() => {
   for (const dispose of mounted.splice(0).reverse()) dispose()
 })
 
-function row(id: string, preview: string): QueuedMessage {
+function row(id: string, preview: string, rpcId?: string): UserMessage {
   return {
     id,
-    messageId: id,
-    placement: 'queued',
+    role: 'user',
     content: [{ type: 'text', text: preview }],
-    preview,
-    text: preview,
-  } as unknown as QueuedMessage
+    source: rpcId === undefined ? { kind: 'user' } : { kind: 'user', rpcId },
+  } as unknown as UserMessage
+}
+
+interface HarnessState {
+  inbox: InboxState
+  pendingSubmissions: readonly PendingSubmission[]
+  running: boolean
+  subagent: { address: { mode: 'one-shot' | 'continuable' | 'unknown' } } | null
 }
 
 function translate(key: string, params: Record<string, unknown> = {}): string {
@@ -44,17 +51,18 @@ function translate(key: string, params: Record<string, unknown> = {}): string {
   return text
 }
 
-async function renderQueue(rows: readonly QueuedMessage[]) {
-  let snapshot = {
-    queue: rows,
+async function renderQueue(rows: readonly UserMessage[], pendingSubmissions: readonly PendingSubmission[] = []) {
+  let state: HarnessState = {
+    inbox: { 'next-turn': rows, 'next-step': [] },
+    pendingSubmissions,
     running: true,
     subagent: null,
-  } as unknown as ConversationSnapshot
+  }
   const updateQueue = vi.fn(async () => undefined)
   const props = {
     sessionId: 'session-1',
-    useProjection: () => undefined,
-    useSession: <T,>(selector: (value: ConversationSnapshot) => T): T => selector(snapshot),
+    useProjection: (key: string) => key === 'inbox' ? state.inbox : undefined,
+    useSession: <T,>(selector: (value: HarnessState) => T): T => selector(state),
     updateQueue,
     t: translate,
   } as unknown as QueuePlusDockProps
@@ -72,8 +80,8 @@ async function renderQueue(rows: readonly QueuedMessage[]) {
   return {
     container,
     updateQueue,
-    rerenderQueue: async (nextRows: readonly QueuedMessage[]): Promise<void> => {
-      snapshot = { ...snapshot, queue: nextRows }
+    rerenderQueue: async (nextRows: readonly UserMessage[]): Promise<void> => {
+      state = { ...state, inbox: { 'next-turn': nextRows, 'next-step': [] } }
       await render()
     },
   }
@@ -222,5 +230,47 @@ describe('unified queue dock', () => {
 
     expect(updateQueue).toHaveBeenCalledTimes(3)
     expect(container.textContent).toContain('已删除 2/3 条，其余消息状态已变化。')
+  })
+
+  it('renders inbox rows that have no placement field', async () => {
+    const { container } = await renderQueue([row('a', '没有 placement'), row('b', '第二条真实排队')])
+
+    expect(container.textContent).toContain('没有 placement')
+    expect(container.textContent).toContain('第二条真实排队')
+    expect(container.textContent).toContain('2 条排队消息')
+  })
+
+  it('shows a queued submission echo until the inbox admits it', async () => {
+    const echo = {
+      requestId: 'rpc-1',
+      placement: 'queued',
+      time: 1,
+      text: '还在发送',
+      attachments: [],
+    } as unknown as PendingSubmission
+    const { container } = await renderQueue([row('a', '已经入库', 'rpc-2')], [echo])
+
+    expect(container.textContent).toContain('已经入库')
+    expect(container.textContent).toContain('还在发送')
+    expect(container.textContent).toContain('发送中')
+    expect(container.querySelectorAll('[aria-label="编辑消息"]')).toHaveLength(1)
+  })
+
+  it('hides an inbox row already shown in the transcript', async () => {
+    const transcript = {
+      requestId: 'rpc-1',
+      placement: 'transcript',
+      time: 1,
+      text: '已经进入对话',
+      attachments: [],
+    } as unknown as PendingSubmission
+    const { container } = await renderQueue([
+      row('a', '不该出现在队列', 'rpc-1'),
+      row('b', '仍在排队'),
+    ], [transcript])
+
+    expect(container.textContent).not.toContain('不该出现在队列')
+    expect(container.textContent).toContain('仍在排队')
+    expect([...container.querySelectorAll('button')].some(button => button.textContent === '排序')).toBe(false)
   })
 })

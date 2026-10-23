@@ -37,9 +37,9 @@ Restart `dsh web`. Queue at least two prompts while an agent is running; **Sort*
 ## Limits
 
 - Single and bulk removal both call DSH's official `conversation.updateQueue(..., { kind: 'remove' })` operation.
-- Remove all targets only the rows visible at confirmation time; concurrent changes may cause partial completion but later messages are not removed.
-- Reordering uses server confirmation and stale-order protection, rejecting a changed queue instead of scrambling it.
-- The plugin does not touch steering/context queues or queues owned by a parent Agent.
+- Remove all deletes the durable queued rows captured at confirmation time, and leaves local echoes that are still sending. Concurrent changes may cause partial completion, and later messages are left in place.
+- Reordering uses server confirmation and stale-order protection, rejecting a changed queue instead of scrambling it. Sorting is available on the parent session.
+- A continuable subagent can edit, remove, and steer. A one-shot subagent queue stays read-only. Steering and context queues stay out of this dock.
 - The stock queue returns automatically after uninstall.
 
 <details>
@@ -62,7 +62,7 @@ dsh plugin --profile web update dsh-queue-plus
 dsh plugin --profile web remove dsh-queue-plus
 ```
 
-Built against the public `@deepseek-ai/* 0.1.0-rc.6` Agent Inbox and Web plugin contracts. Those are still release candidates.
+Built against the public `@deepseek-ai/* 0.2.1-rc.2` Agent Inbox and Web plugin contracts. Queued rows come from `inbox["next-turn"]` and are not filtered by `placement`. Those contracts are still release candidates.
 
 </details>
 

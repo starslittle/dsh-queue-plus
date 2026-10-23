@@ -1,23 +1,23 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  IconCheckOutline16: () => null,
-  IconChevronDownOutline14: () => null,
-  IconChevronUpOutline14: () => null,
-  IconCloseOutline16: () => null,
-  IconEditOutline16: () => null,
-  IconQueueOutline14: () => null,
-  IconSendOutline14: () => null,
-  IconTrashOutline16: () => null,
+  IconCheckOutlineRegular: () => null,
+  IconChevronDownOutlineRegular: () => null,
+  IconChevronUpOutlineRegular: () => null,
+  IconCloseOutlineRegular: () => null,
+  IconEditOutlineRegular: () => null,
+  IconQueueOutlineRegular: () => null,
+  IconSendOutlineRegular: () => null,
+  IconTrashOutlineRegular: () => null,
   Tooltip: ({ children }: { children: ReactNode }) => children,
 }))
 
 import { apply } from '../src/client/index'
 import { STYLE_ID } from '../src/client/styles'
 
-function harness(): { ctx: ClientContext; registrations: string[]; dispose(): void } {
+function harness(): { ctx: Context; registrations: string[]; dispose(): void } {
   const disposers: Array<() => void> = []
   const registrations: string[] = []
   const ctx = {
@@ -39,7 +39,7 @@ function harness(): { ctx: ClientContext; registrations: string[]; dispose(): vo
         return () => undefined
       },
     },
-  } as unknown as ClientContext
+  } as unknown as Context
   return {
     ctx,
     registrations,

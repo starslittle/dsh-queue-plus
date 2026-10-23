@@ -1,23 +1,26 @@
-import type { QueuedMessage, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
+import type { InboxState } from '@deepseek-ai/dsh-agent/types'
+import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import {
-  IconCheckOutline16,
-  IconChevronDownOutline14,
-  IconChevronUpOutline14,
-  IconCloseOutline16,
-  IconEditOutline16,
-  IconQueueOutline14,
-  IconSendOutline14,
-  IconTrashOutline16,
+  IconCheckOutlineRegular,
+  IconChevronDownOutlineRegular,
+  IconChevronUpOutlineRegular,
+  IconCloseOutlineRegular,
+  IconEditOutlineRegular,
+  IconQueueOutlineRegular,
+  IconSendOutlineRegular,
+  IconTrashOutlineRegular,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ContentBlock, MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { moveQueue, QueuePlusClientError } from './api'
 import { NS } from './locales'
 import { styles } from './styles'
 
-type QueueItemId = Parameters<SessionFace['updateQueue']>[0]
-type QueueAction = Parameters<SessionFace['updateQueue']>[1]
+type QueueItemId = MessageId
 
 export interface QueuePlusDockInjected {
   updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
@@ -44,12 +47,82 @@ interface Announcement {
 
 type BusyAction = 'queue' | 'move' | 'clear'
 
-function queued(rows: readonly QueuedMessage[]): QueuedMessage[] {
-  return rows.filter(row => row.placement === 'queued')
+interface DurableRow {
+  readonly pending: false
+  readonly id: MessageId
+  readonly key: string
+  readonly preview: string
+  readonly text: string | null
 }
 
-function ids(rows: readonly QueuedMessage[]): string[] {
-  return rows.map(row => String(row.id))
+interface EchoRow {
+  readonly pending: true
+  readonly key: string
+  readonly preview: string
+}
+
+type QueueRow = DurableRow | EchoRow
+
+const EMPTY_QUEUE = [] as const
+
+function rpcId(source: UserMessage['source']): string | undefined {
+  if (source.kind !== 'user' || !('rpcId' in source)) return undefined
+  const value = source.rpcId
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function rowText(content: readonly ContentBlock[]): { editable: string | null; plain: string } {
+  let editable = ''
+  let plain = ''
+  let textOnly = true
+  for (const block of content) {
+    if (block.type !== 'text') {
+      textOnly = false
+      continue
+    }
+    editable += block.text
+    plain += block.text
+  }
+  return { editable: textOnly ? editable : null, plain: plain.trim() }
+}
+
+function durableRows(inbox: InboxState | undefined, pending: readonly PendingSubmission[], attachmentLabel: string): DurableRow[] {
+  const rows = inbox?.['next-turn'] ?? EMPTY_QUEUE
+  const inChat = new Set(pending.filter(item => item.placement === 'transcript').map(item => String(item.requestId)))
+  const visible = inChat.size === 0 ? rows : rows.filter(row => {
+    const id = rpcId(row.source)
+    return id === undefined || !inChat.has(id)
+  })
+  return visible.map(row => {
+    const text = rowText(row.content)
+    return {
+      pending: false,
+      id: row.id,
+      key: String(row.id),
+      preview: text.plain !== '' ? text.plain : attachmentLabel,
+      text: text.editable,
+    }
+  })
+}
+
+function echoRows(inbox: InboxState | undefined, pending: readonly PendingSubmission[], attachmentLabel: string): EchoRow[] {
+  const admitted = new Set((inbox?.['next-turn'] ?? EMPTY_QUEUE).flatMap(row => {
+    const id = rpcId(row.source)
+    return id === undefined ? [] : [id]
+  }))
+  return pending.flatMap(submission => {
+    if (submission.placement !== 'queued' || admitted.has(String(submission.requestId))) return []
+    const plain = submission.text.trim()
+    return [{
+      pending: true as const,
+      key: `pending:${String(submission.requestId)}`,
+      preview: plain !== '' ? plain : attachmentLabel,
+    }]
+  })
+}
+
+function ids(rows: readonly DurableRow[]): string[] {
+  return rows.map(row => row.key)
 }
 
 function sameOrder(left: readonly string[], right: readonly string[]): boolean {
@@ -61,11 +134,11 @@ function sameMembers(left: readonly string[], right: readonly string[]): boolean
     && left.every(id => right.includes(id))
 }
 
-function projectOrder(rows: readonly QueuedMessage[], order: readonly string[] | null): QueuedMessage[] {
+function projectOrder(rows: readonly DurableRow[], order: readonly string[] | null): DurableRow[] {
   if (order === null || !sameMembers(ids(rows), order)) return [...rows]
-  const byId = new Map(rows.map(row => [String(row.id), row] as const))
+  const byId = new Map(rows.map(row => [row.key, row] as const))
   const projected = order.map(id => byId.get(id))
-  return projected.every((row): row is QueuedMessage => row !== undefined) ? projected : [...rows]
+  return projected.every((row): row is DurableRow => row !== undefined) ? projected : [...rows]
 }
 
 function errorText(error: unknown, t: QueuePlusDockProps['t'], fallback?: string): string {
@@ -80,14 +153,26 @@ function errorText(error: unknown, t: QueuePlusDockProps['t'], fallback?: string
 /** One queue surface with an in-place management/sorting mode switch. */
 export function QueuePlusDock({
   useSession,
+  useProjection,
   sessionId,
   updateQueue,
   t,
 }: QueuePlusDockProps): React.JSX.Element | null {
-  const inbox = useSession(snapshot => snapshot.queue)
-  const queue = useMemo(() => queued(inbox), [inbox])
+  const inbox = useProjection('inbox') as unknown as InboxState | undefined
+  const pendingSubmissions = useSession(snapshot => snapshot.pendingSubmissions)
+  const attachmentLabel = t('row.attachmentOnly')
+  const queue = useMemo(
+    () => durableRows(inbox, pendingSubmissions, attachmentLabel),
+    [attachmentLabel, inbox, pendingSubmissions],
+  )
+  const echoes = useMemo(
+    () => echoRows(inbox, pendingSubmissions, attachmentLabel),
+    [attachmentLabel, inbox, pendingSubmissions],
+  )
   const running = useSession(snapshot => snapshot.running)
-  const queueMutable = useSession(snapshot => snapshot.subagent === null)
+  const subagent = useSession(snapshot => snapshot.subagent)
+  const queueMutable = subagent === null || subagent.address.mode === 'continuable'
+  const sortable = subagent === null
   const [collapsed, setCollapsed] = useState(true)
   const [sorting, setSorting] = useState(false)
   const [editing, setEditing] = useState<EditingState | null>(null)
@@ -106,6 +191,8 @@ export function QueuePlusDock({
   const confirmingClearOrder = useRef<string[] | null>(null)
 
   const displayQueue = useMemo(() => projectOrder(queue, pendingOrder), [pendingOrder, queue])
+  const visibleRows: readonly QueueRow[] = sorting ? displayQueue : [...displayQueue, ...echoes]
+  const rowCount = displayQueue.length + echoes.length
 
   useEffect(() => {
     if (pendingOrder === null) return
@@ -115,14 +202,14 @@ export function QueuePlusDock({
 
   useEffect(() => {
     const previousLength = previousQueueLength.current
-    if (queue.length === 0) {
+    if (rowCount === 0) {
       setCollapsed(true)
       manuallyCollapsed.current = false
-    } else if (!manuallyCollapsed.current && (previousLength === 0 || (previousLength === 1 && queue.length > 1))) {
+    } else if (!manuallyCollapsed.current && (previousLength === 0 || (previousLength === 1 && rowCount > 1))) {
       setCollapsed(false)
     }
-    previousQueueLength.current = queue.length
-    if (queue.length < 2 || !queueMutable) {
+    previousQueueLength.current = rowCount
+    if (displayQueue.length < 2 || !sortable) {
       setSorting(false)
       setConfirmingClear(false)
       confirmingClearOrder.current = null
@@ -135,9 +222,9 @@ export function QueuePlusDock({
     if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
     if (confirmingRemove !== null
       && (!queueMutable || !queue.some(row => row.id === confirmingRemove))) setConfirmingRemove(null)
-    if (dragging !== null && !queue.some(row => String(row.id) === dragging)) setDragging(null)
-    if (dragOver !== null && !queue.some(row => String(row.id) === dragOver)) setDragOver(null)
-  }, [confirmingClear, confirmingRemove, dragOver, dragging, editing, queue, queueMutable])
+    if (dragging !== null && !queue.some(row => row.key === dragging)) setDragging(null)
+    if (dragOver !== null && !queue.some(row => row.key === dragOver)) setDragOver(null)
+  }, [confirmingClear, confirmingRemove, displayQueue.length, dragOver, dragging, editing, queue, queueMutable, rowCount, sortable])
 
   useEffect(() => {
     if (notice === null) return undefined
@@ -145,10 +232,10 @@ export function QueuePlusDock({
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  if (queue.length === 0 && notice === null) return null
+  if (rowCount === 0 && notice === null) return null
 
   const interactionActive = busy !== null || editing !== null || confirmingRemove !== null || confirmingClear
-  const listVisible = displayQueue.length === 1 || !collapsed || sorting || editing !== null
+  const listVisible = visibleRows.length === 1 || !collapsed || sorting || editing !== null
   const expectedOrder = (): string[] => ids(displayQueue)
 
   const announcePosition = (position: number): void => {
@@ -275,7 +362,7 @@ export function QueuePlusDock({
         data-drag-active={dragging !== null || undefined}
         aria-label={t('panel.label')}
       >
-        {displayQueue.length > 1 && (
+        {rowCount > 1 && (
           <header className={styles.header}>
             <button
               type="button"
@@ -285,11 +372,11 @@ export function QueuePlusDock({
               disabled={interactionActive || sorting}
               onClick={toggleCollapsed}
             >
-              <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
-              <span className={styles.count}>{t('panel.count', { count: displayQueue.length })}</span>
+              <span className={styles.lead} aria-hidden="true"><IconQueueOutlineRegular /></span>
+              <span className={styles.count}>{t('panel.count', { count: rowCount })}</span>
               {sorting && <span className={styles.sortingLabel}>{t('panel.sorting')}</span>}
             </button>
-            {queueMutable && (
+            {sortable && displayQueue.length > 1 && (
               <button
                 type="button"
                 className={styles.modeButton}
@@ -312,14 +399,14 @@ export function QueuePlusDock({
                 onClick={toggleCollapsed}
               >
                 <span aria-hidden="true">
-                  {listVisible ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
+                  {listVisible ? <IconChevronDownOutlineRegular /> : <IconChevronUpOutlineRegular />}
                 </span>
               </button>
             )}
           </header>
         )}
 
-        {displayQueue.length > 0 && (
+        {visibleRows.length > 0 && (
           <div
             id={listId}
             className={styles.body}
@@ -334,10 +421,10 @@ export function QueuePlusDock({
                 aria-label={sorting ? t('panel.sortList') : t('panel.list')}
                 aria-describedby={sorting ? sortHintId : undefined}
               >
-                {displayQueue.map((row, index) => {
-                  const itemId = String(row.id)
-                  const rowEditing = editing?.id === row.id
-                  const rowConfirmingRemove = confirmingRemove === row.id
+                {visibleRows.map((row, index) => {
+                  const itemId = row.key
+                  const rowEditing = !row.pending && editing?.id === row.id
+                  const rowConfirmingRemove = !row.pending && confirmingRemove === row.id
                   const otherEditActive = editing !== null && !rowEditing
                   return (
                     <li
@@ -361,7 +448,17 @@ export function QueuePlusDock({
                         if (source !== '' && source !== itemId) void move(source, index)
                       }}
                     >
-                      {sorting
+                      {row.pending
+                        ? (
+                            <>
+                              {rowCount === 1 && (
+                                <span className={styles.lead} aria-hidden="true"><IconQueueOutlineRegular /></span>
+                              )}
+                              <span className={styles.preview} title={row.preview}>{row.preview}</span>
+                              <span className={styles.status} role="status">{t('status.sending')}</span>
+                            </>
+                          )
+                        : sorting
                         ? (
                             <>
                               <span className={styles.index}>{String(index + 1).padStart(2, '0')}</span>
@@ -394,7 +491,7 @@ export function QueuePlusDock({
                                     disabled={busy !== null || index === 0}
                                     onClick={() => { void move(itemId, index - 1) }}
                                   >
-                                    <span aria-hidden="true"><IconChevronUpOutline14 /></span>
+                                    <span aria-hidden="true"><IconChevronUpOutlineRegular /></span>
                                   </button>
                                 </Tooltip>
                                 <Tooltip label={t('action.moveDown', { position: index + 1 })} side="bottom" delayMs={500}>
@@ -405,7 +502,7 @@ export function QueuePlusDock({
                                     disabled={busy !== null || index === displayQueue.length - 1}
                                     onClick={() => { void move(itemId, index + 1) }}
                                   >
-                                    <span aria-hidden="true"><IconChevronDownOutline14 /></span>
+                                    <span aria-hidden="true"><IconChevronDownOutlineRegular /></span>
                                   </button>
                                 </Tooltip>
                               </span>
@@ -413,8 +510,8 @@ export function QueuePlusDock({
                           )
                         : (
                             <>
-                              {displayQueue.length === 1 && (
-                                <span className={styles.lead} aria-hidden="true"><IconQueueOutline14 /></span>
+                              {rowCount === 1 && (
+                                <span className={styles.lead} aria-hidden="true"><IconQueueOutlineRegular /></span>
                               )}
                               {rowEditing
                                 ? (
@@ -453,7 +550,7 @@ export function QueuePlusDock({
                                               disabled={busy !== null || editing.text.trim() === ''}
                                               onClick={() => { void saveEdit() }}
                                             >
-                                              <span aria-hidden="true"><IconCheckOutline16 size={14} /></span>
+                                              <span aria-hidden="true"><IconCheckOutlineRegular size={14} /></span>
                                             </button>
                                           </Tooltip>
                                           <Tooltip label={t('action.cancelEdit')} side="bottom" delayMs={500}>
@@ -464,7 +561,7 @@ export function QueuePlusDock({
                                               disabled={busy !== null}
                                               onClick={() => setEditing(null)}
                                             >
-                                              <span aria-hidden="true"><IconCloseOutline16 size={14} /></span>
+                                              <span aria-hidden="true"><IconCloseOutlineRegular size={14} /></span>
                                             </button>
                                           </Tooltip>
                                         </>
@@ -509,7 +606,7 @@ export function QueuePlusDock({
                                                 if (row.text !== null) setEditing({ id: row.id, text: row.text })
                                               }}
                                             >
-                                              <span aria-hidden="true"><IconEditOutline16 size={14} /></span>
+                                              <span aria-hidden="true"><IconEditOutlineRegular size={14} /></span>
                                             </button>
                                           </Tooltip>
                                           <Tooltip label={t('action.remove')} side="bottom" delayMs={500}>
@@ -524,7 +621,7 @@ export function QueuePlusDock({
                                                 setConfirmingRemove(row.id)
                                               }}
                                             >
-                                              <span aria-hidden="true"><IconTrashOutline16 size={14} /></span>
+                                              <span aria-hidden="true"><IconTrashOutlineRegular size={14} /></span>
                                             </button>
                                           </Tooltip>
                                           <Tooltip
@@ -544,7 +641,7 @@ export function QueuePlusDock({
                                                 void applyQueueAction(row.id, { kind: 'steer' }, t('error.steer'))
                                               }}
                                             >
-                                              <span aria-hidden="true"><IconSendOutline14 /></span>
+                                              <span aria-hidden="true"><IconSendOutlineRegular /></span>
                                             </button>
                                           </Tooltip>
                                         </>

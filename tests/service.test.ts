@@ -9,7 +9,7 @@ function message(id: string): UserMessage {
     role: 'user',
     content: [{ type: 'text', text: id }],
     source: { kind: 'user' },
-  } as UserMessage
+  } as unknown as UserMessage
 }
 
 class FakeInbox {

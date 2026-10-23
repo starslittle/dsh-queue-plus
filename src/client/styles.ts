@@ -24,6 +24,7 @@ export const styles = {
   footnote: 'dsh-queue-plus-footnote',
   clearButton: 'dsh-queue-plus-clear-button',
   notice: 'dsh-queue-plus-notice',
+  status: 'dsh-queue-plus-status',
   srOnly: 'dsh-queue-plus-sr-only',
 } as const
 
@@ -312,6 +313,13 @@ export const STYLE_TEXT = String.raw`
   min-width: 0;
   font: var(--dsw-font-xs-13);
   font-family: Inter, var(--dsw-font-family);
+}
+
+.dsh-queue-plus-status {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+  white-space: nowrap;
 }
 
 .dsh-queue-plus-preview {
