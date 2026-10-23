@@ -21,7 +21,7 @@ Queue Plus 使用 DSH 官方插槽接管 QueueDock，不隐藏或复制排队消
 推荐安装 Release 中的预构建包，无需授权安装脚本：
 
 ```sh
-dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.3.0/dsh-queue-plus-0.3.0.tgz
+dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.4.0/dsh-queue-plus-0.4.0.tgz
 ```
 
 重启 `dsh web`。运行中连续发送至少两条“排队”消息，队列标题旁会出现“排序”。
@@ -48,7 +48,7 @@ dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/re
 锁定版本、从 GitHub 源码安装：
 
 ```sh
-dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.3.0
+dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.4.0
 ```
 
 源码安装会跑仓库自带的 `prepare` 构建。pnpm 10 及以上需要先在对应 profile 的 `pnpm-workspace.yaml` 里允许 `dsh-queue-plus` 执行构建；只对可信源码开这个权限。

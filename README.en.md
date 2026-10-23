@@ -21,7 +21,7 @@ Queue Plus takes over QueueDock through DSH's public slot mechanism without hidi
 The recommended install is the prebuilt Release archive, which needs no install-script permission:
 
 ```sh
-dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.3.0/dsh-queue-plus-0.3.0.tgz
+dsh plugin --profile web add -w https://github.com/starslittle/dsh-queue-plus/releases/download/v0.4.0/dsh-queue-plus-0.4.0.tgz
 ```
 
 Restart `dsh web`. Queue at least two prompts while an agent is running; **Sort** appears next to the queue title.
@@ -46,7 +46,7 @@ Restart `dsh web`. Queue at least two prompts while an agent is running; **Sort*
 <summary>Pin a version, source install, and development</summary>
 
 ```sh
-dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.3.0
+dsh plugin --profile web add github:starslittle/dsh-queue-plus#v0.4.0
 ```
 
 Source install runs this repo's `prepare` build. pnpm 10+ requires an explicit allow in that profile's `pnpm-workspace.yaml`; only grant it to source you trust.
